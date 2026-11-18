@@ -100,6 +100,14 @@ details.more[open] summary{margin-bottom:10px}
 .note{font-size:.82rem;color:var(--muted);border-left:3px solid var(--line);padding-left:10px}
 .excl{font-size:.85rem;color:var(--muted)}
 .excl ul{margin:6px 0 0;padding-left:18px}
+.kpi.good b{color:var(--ok)}
+.pct{font-family:var(--mono);font-weight:600;font-size:1.05rem;color:var(--ok)}
+.comm{grid-column:1/-1;font-size:.85rem;background:var(--surface-2);border-radius:7px;padding:7px 10px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.comm b{font-family:var(--mono)}
+.seg-banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-radius:8px;background:var(--surface-2)}
+.seg-banner b{font-family:var(--display);font-size:1.05rem}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.toolbar select{font:400 .9rem var(--body);padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg)}
 .demo-flag{background:var(--warn-bg);color:var(--warn);font-weight:600;font-size:.85rem;padding:8px 12px;border-radius:8px}
 textarea.copy{width:100%;min-height:160px;font:400 .85rem var(--mono);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:10px}
 .toggle{display:flex;gap:10px;align-items:flex-start;font-size:.92rem}
@@ -120,6 +128,7 @@ textarea.copy{width:100%;min-height:160px;font:400 .85rem var(--mono);background
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-bolletta" aria-selected="true" data-tab="bolletta">Analizza bolletta</button>
     <button class="tab" role="tab" id="tab-offerte" aria-selected="false" data-tab="offerte">Offerte CTE<span class="count" id="offerCount">0</span></button>
+    <button class="tab" role="tab" id="tab-compensi" aria-selected="false" data-tab="compensi">Compensi<span class="count" id="commCount">0</span></button>
     <button class="tab" role="tab" id="tab-impostazioni" aria-selected="false" data-tab="impostazioni">Impostazioni</button>
   </nav>
 </header>
@@ -174,6 +183,26 @@ textarea.copy{width:100%;min-height:160px;font:400 .85rem var(--mono);background
     </div>
     <div id="offerList" class="list"></div>
   </div>
+</section>
+
+<!-- ===================== COMPENSI ===================== -->
+<section class="panel" id="panel-compensi" hidden>
+  <div class="drop" id="dropComm">
+    <h2>Tabelle compensi agente</h2>
+    <p class="muted">Carica le tabelle provvigionali degli operatori (PDF, foto, Excel o CSV). Le trasformo in regole: gettone per contratto, quota per consumo, ricorrente.</p>
+    <div class="btns">
+      <label class="btn primary" for="commFile">Scegli tabelle</label>
+      <button class="btn" type="button" id="btnAddComm">Inserisci a mano</button>
+    </div>
+    <input type="file" id="commFile" accept="application/pdf,image/*,.xlsx,.xls,.csv,text/csv" multiple hidden>
+  </div>
+  <div id="commStatus" hidden></div>
+  <div id="commDrafts" class="list"></div>
+  <div class="card">
+    <div class="row"><h2>Regole salvate</h2></div>
+    <div id="commList" class="list"></div>
+  </div>
+  <p class="note">Compenso stimato = gettone una tantum + quota variabile × consumo annuo + ricorrente del primo anno. Se più regole valgono per la stessa offerta, vince quella specifica per l'offerta, poi quella con la fascia di consumo più stretta. I compensi non compaiono mai nel riepilogo per il cliente.</p>
 </section>
 
 <!-- ===================== IMPOSTAZIONI ===================== -->
@@ -302,6 +331,9 @@ function stessoOperatore(a, b){
 const DEFAULT_SETTINGS = { pun: null, psv: null, idxDate: "", escludiGruppo: true, alias: "", tolleranza: 0 };
 let settings = Object.assign({}, DEFAULT_SETTINGS, lsGet("cf_settings", {}));
 let offers = lsGet("cf_offers", []);   // [{id, ...}]
+let compensi = lsGet("cf_compensi", []);
+let showComm = lsGet("cf_showcomm", true);
+let sortBy = "risparmio";
 let db = null, canWrite = true;
 let demoMode = false;
 let currentBill = null;
@@ -310,7 +342,7 @@ let offerFilter = "tutte";
 const store = {
   async init(){
     try { db = window.claude?.use ? await window.claude.use("db") : null; } catch { db = null; }
-    if (!db) { $("#storeMode").textContent = "Salvate su questo dispositivo"; renderOffers(); return; }
+    if (!db) { $("#storeMode").textContent = "Salvate solo su questo dispositivo (archivio condiviso non disponibile qui)"; renderOffers(); renderComm(); return; }
     $("#storeMode").textContent = "Sincronizzate (PC e telefono)";
     try { const u = await window.claude.use("user"); const w = u ? await u.can("data.write") : null; if (w === false) canWrite = false; } catch {}
     const timer = setTimeout(() => { $("#storeMode").textContent = "Archivio lento a rispondere: mostro la copia locale"; }, 10000);
@@ -320,6 +352,10 @@ const store = {
       lsSet("cf_offers", offers);
       renderOffers(); if (currentBill) renderResults();
     }, () => { clearTimeout(timer); $("#storeMode").textContent = "Archivio non raggiungibile: copia locale"; });
+    db.collection("compensi").onSnapshot(snap => {
+      compensi = snap.docs.map(d => Object.assign({}, d.data(), { id: d.id }));
+      lsSet("cf_compensi", compensi); renderComm(); if (currentBill) renderResults();
+    }, () => {});
     db.doc("config/impostazioni").onSnapshot(s => {
       if (s.exists) { settings = Object.assign({}, DEFAULT_SETTINGS, s.data()); lsSet("cf_settings", settings); fillSettings(); if (currentBill) renderResults(); }
     }, () => {});
@@ -337,6 +373,19 @@ const store = {
   async deleteOffer(id){
     if (db) await db.doc("offerte/" + id).delete();
     else { offers = offers.filter(o => o.id !== id); lsSet("cf_offers", offers); renderOffers(); }
+  },
+  async saveComm(r){
+    const data = Object.assign({}, r); const id = data.id; delete data.id; delete data.via; data.aggiornata = new Date().toISOString();
+    if (db) { if (id) await db.doc("compensi/" + id).set(data); else await db.collection("compensi").add(data); }
+    else {
+      if (id) compensi = compensi.map(x => x.id === id ? Object.assign(data, { id }) : x);
+      else compensi.push(Object.assign(data, { id: "c" + Date.now() + Math.random().toString(36).slice(2, 6) }));
+      lsSet("cf_compensi", compensi); renderComm();
+    }
+  },
+  async deleteComm(id){
+    if (db) await db.doc("compensi/" + id).delete();
+    else { compensi = compensi.filter(o => o.id !== id); lsSet("cf_compensi", compensi); renderComm(); }
   },
   async saveSettings(s){
     lsSet("cf_settings", s);
@@ -428,6 +477,9 @@ Estrai i dati dalla bolletta qui sotto (testo estratto da PDF e/o immagini alleg
  "fornitore": string,                            // la società di VENDITA che emette la bolletta, NON il distributore (e-distribuzione, Areti, Unareti, Italgas, 2i Rete Gas ecc. sono distributori)
  "nomeOfferta": string | null,
  "intestatario": string | null,
+ "partitaIvaCliente": string | null,            // P.IVA dell'INTESTATARIO (non quella del fornitore)
+ "codiceFiscaleCliente": string | null,         // codice fiscale dell'intestatario (16 caratteri persona fisica, 11 cifre società)
+ "tipologiaUso": string | null,                 // testo esatto della tipologia/categoria d'uso (es. "Uso domestico residente", "Altri usi BTA6", "C3", "T2")
  "codicePunto": string | null,                   // POD o PDR
  "indirizzoFornitura": string | null,
  "periodoDal": "YYYY-MM-DD" | null, "periodoAl": "YYYY-MM-DD" | null,
@@ -441,6 +493,7 @@ Estrai i dati dalla bolletta qui sotto (testo estratto da PDF e/o immagini alleg
  "quotaFissaMese": number | null,                // quota fissa di commercializzazione vendita €/mese IVA esclusa (PCV per luce, QVD/quota fissa per gas)
  "spesaMateriaPeriodo": number | null,           // € "spesa per la materia energia" / "spesa per la materia gas naturale" del periodo, IVA esclusa
  "totaleBolletta": number | null,                // € totale da pagare
+ "spesaAnnuaStimata": number | null,             // € spesa annua stimata o "spesa ultimi 12 mesi" se indicata in bolletta
  "iva": number | null                            // aliquota IVA % applicata (10 o 22)
 }
 Numeri con il punto come separatore decimale, nessun simbolo. Se un dato non è presente metti null: non inventare.`;
@@ -467,6 +520,38 @@ Rispondi SOLO con JSON: {"offerte":[ ... ]}, dove ogni offerta è:
 }
 Numeri con il punto decimale. Converti c€ in € (es. 12,5 c€/kWh => 0.125). Se un dato manca usa null, non inventare.`;
 
+/* --- rilevamento automatico privato / business --- */
+function rilevaSegmento(text, ai){
+  ai = ai || {};
+  const t = [text || "", ai.tipologiaUso || "", ai.intestatario || "", ai.partitaIvaCliente ? "partita iva cliente " + ai.partitaIvaCliente : "", ai.codiceFiscaleCliente || "", ai.motivoSegmento || "", ai.nomeOfferta || ""].join("\n");
+  const seg = { b: 0, d: 0, motivi: [] };
+  const add = (side, pts, why) => { seg[side] += pts; seg.motivi.push({ side, pts, why }); };
+  const test = (re, side, pts, why) => { if (re.test(t)) add(side, pts, why); };
+  test(/altri\s+usi|usi\s+diversi\s+dall.abitazione|uso\s+non\s+domestico|usi\s+non\s+domestici/i, "b", 4, "tipologia 'altri usi'");
+  test(/\bBTA\s?\d?\b|\bMTA\s?\d?\b|bassa\s+tensione\s+altri\s+usi|media\s+tensione/i, "b", 4, "tariffa BTA/MTA");
+  test(/categoria\s+d.uso[^\n]{0,20}\bT[12]\b|\buso\s+tecnologico|artigianal|industrial/i, "b", 3, "uso tecnologico/industriale");
+  test(/\b(s\.?\s?r\.?\s?l\.?s?|s\.?\s?p\.?\s?a\.?|s\.?\s?n\.?\s?c\.?|s\.?\s?a\.?\s?s\.?|soc(?:ietà|\.)\s+coop|ditta|studio\s+(?:associato|legale|medico|tecnico)|impresa)\b/i.test(ai.intestatario || "") ? /./ : /$^/, "b", 4, "intestatario è una società");
+  if (ai.partitaIvaCliente && /\d{11}/.test(String(ai.partitaIvaCliente))) add("b", 3, "partita IVA del cliente");
+  if (ai.codiceFiscaleCliente && /^\s*\d{11}\s*$/.test(String(ai.codiceFiscaleCliente))) add("b", 2, "codice fiscale numerico (società)");
+  test(/(?:cliente|intestatario)[^\n]{0,60}(?:p\.?\s?iva|partita\s+iva)\s*:?\s*\d{11}/i, "b", 2, "P.IVA vicino ai dati cliente");
+  if (toNum(ai.potenzaImpegnata) > 16.5) add("b", 2, "potenza impegnata oltre 16,5 kW");
+  if (ai.tipo !== "gas" && toNum(ai.iva) === 22) add("b", 2, "IVA 22% sulla luce");
+  test(/\b(business|pmi|partite\s+iva|impresa)\b/i, "b", 1, "offerta business");
+  test(/uso\s+domestico|domestico\s+residente|domestico\s+non\s+residente|cliente\s+domestico|\bTD\b|tariffa\s+D[23]\b/i, "d", 4, "tipologia 'uso domestico'");
+  test(/abitazione\s+di\s+residenza|residente\s*:\s*s[iì]|cliente\s+residente/i, "d", 2, "abitazione di residenza");
+  test(/categoria\s+d.uso[^\n]{0,20}\bC[1-5]\b/i, "d", 2, "categoria d'uso gas domestica (C1-C5)");
+  test(/bonus\s+sociale/i, "d", 2, "bonus sociale");
+  if (/\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b/i.test(ai.codiceFiscaleCliente || "") ) add("d", 2, "codice fiscale di persona fisica");
+  if (toNum(ai.iva) === 10) add("d", 2, "IVA 10%");
+  if (ai.segmento === "business") add("b", 3, "lettura AI della bolletta"); else if (ai.segmento === "domestico") add("d", 3, "lettura AI della bolletta");
+  const segmento = seg.b > seg.d ? "business" : "domestico";
+  const diff = Math.abs(seg.b - seg.d);
+  const certezza = diff >= 4 ? "alta" : diff >= 2 ? "media" : "bassa";
+  const side = segmento === "business" ? "b" : "d";
+  const motivo = seg.motivi.filter(m => m.side === side).sort((a, b) => b.pts - a.pts).slice(0, 3).map(m => m.why).join(", ") || "nessun indizio chiaro: verifica";
+  return { segmento, certezza, motivo };
+}
+
 /* --- fallback euristico (senza Claude) --- */
 function rx(text, re){ const m = text.match(re); return m ? m[1] : null; }
 function trovaOperatore(text){
@@ -485,9 +570,6 @@ function heuristicBill(text){
   const pdr = rx(t, /PDR[^0-9]{0,25}(\d{14})/i);
   const kwh = (t.match(/kwh/gi) || []).length, smc = (t.match(/smc/gi) || []).length;
   const tipo = pod ? "luce" : pdr ? "gas" : (smc > kwh ? "gas" : "luce");
-  const biz = /altri usi|usi diversi|uso non domestico|\bBTA\b|\bMTA\b|partita\s+iva\s+cliente|p\.\s?iva\s*(intestatario|cliente)/i.test(t);
-  const dom = /uso domestico|domestico residente|domestico non residente|cliente domestico/i.test(t);
-  const segmento = biz && !dom ? "business" : dom ? "domestico" : (/partita iva|p\.?\s?iva/i.test(t) && !/codice fiscale/i.test(t) ? "business" : "domestico");
   const N = "([\\d.]+(?:,\\d+)?)";
   const u = tipo === "gas" ? "smc" : "kwh";
   const annuo = itNum(rx(t, new RegExp("consumo\\s+annuo[^\\d]{0,60}" + N + "\\s*" + u, "i")) || rx(t, new RegExp("ultimi\\s+12\\s+mesi[^\\d]{0,60}" + N + "\\s*" + u, "i")));
@@ -500,7 +582,8 @@ function heuristicBill(text){
     mesi = Math.max(1, Math.round((new Date(al) - new Date(dal)) / 2.63e9)); }
   const consPer = itNum(rx(t, new RegExp("(?:consumo|energia)\\s+(?:fatturat[oa]|del\\s+periodo|rilevat[oa])[^\\d]{0,40}" + N + "\\s*" + u, "i")));
   const iva = /iva\s*(?:al\s*)?22\s*%/i.test(t) ? 22 : /iva\s*(?:al\s*)?10\s*%/i.test(t) ? 10 : null;
-  return { tipo, segmento, motivoSegmento: biz ? "trovato 'altri usi' / partita IVA" : dom ? "trovato 'uso domestico'" : "dedotto", fornitore: trovaOperatore(t.split(/distribu/i)[0] || t) || trovaOperatore(t),
+  const ivaTxt = /iva\s*(?:al\s*)?22\s*%/i.test(t) ? 22 : /iva\s*(?:al\s*)?10\s*%/i.test(t) ? 10 : null;
+  return { tipo, fornitore: trovaOperatore(t.split(/distribu/i)[0] || t) || trovaOperatore(t),
     codicePunto: pod || pdr, consumoAnnuo: annuo, totaleBolletta: totale, spesaMateriaPeriodo: materia, potenzaImpegnata: potenza,
     periodoDal: dal, periodoAl: al, mesiPeriodo: mesi, consumoPeriodo: consPer, iva };
 }
@@ -543,6 +626,8 @@ async function handleBillFile(file){
       if (!prep.text.trim()) { setStatus(st, "err", "Non riesco a leggere la foto senza l'analisi AI (" + esc(r.why) + "). Inserisci i dati a mano qui sotto oppure carica il PDF originale."); data = {}; via = "manuale"; }
       else { data = heuristicBill(prep.text); via = "regole"; }
     }
+    const segR = rilevaSegmento(prep.text, data);
+    data.segmento = segR.segmento; data.motivoSegmento = segR.motivo; data.certezzaSegmento = segR.certezza;
     currentBill = normalizeBill(data, file.name, via);
     setStatus(st, via === "ai" ? "ok" : via === "regole" ? "" : "err",
       via === "ai" ? "Bolletta letta. Controlla i dati evidenziati e conferma." :
@@ -563,7 +648,8 @@ function normalizeBill(d, nomeFile, via){
     nomeFile, via,
     tipo: d.tipo === "gas" ? "gas" : "luce",
     segmento: d.segmento === "business" ? "business" : "domestico",
-    motivoSegmento: d.motivoSegmento || "",
+    motivoSegmento: d.motivoSegmento || "", certezzaSegmento: d.certezzaSegmento || "", segmentoManuale: false,
+    spesaAnnuaStimata: toNum(d.spesaAnnuaStimata),
     fornitore: d.fornitore || "", nomeOfferta: d.nomeOfferta || "", intestatario: d.intestatario || "",
     codicePunto: d.codicePunto || "", indirizzoFornitura: d.indirizzoFornitura || "",
     periodoDal: d.periodoDal || "", periodoAl: d.periodoAl || "",
@@ -592,6 +678,7 @@ const BILL_MORE = [
   ["mesiPeriodo", "Mesi fatturati", "number"], ["consumoPeriodo", "Consumo del periodo", "number", "U"],
   ["spesaMateriaPeriodo", "Spesa materia del periodo €", "number", "Usata per stimare il prezzo se manca"],
   ["totaleBolletta", "Totale bolletta €", "number"],
+  ["spesaAnnuaStimata", "Spesa annua attuale €", "number", "Se nota (base per il risparmio %)"],
   ["consumoF1", "Consumo F1 kWh", "number", null, false, "luce"], ["consumoF2", "Consumo F2 kWh", "number", null, false, "luce"], ["consumoF3", "Consumo F3 kWh", "number", null, false, "luce"],
   ["iva", "IVA %", "number", "10% domestico, 22% business"],
   ["indirizzoFornitura", "Indirizzo fornitura", "text"],
@@ -612,19 +699,19 @@ function renderReview(){
     <div class="row"><h2>Dati riconosciuti</h2><span class="muted">${esc(b.nomeFile || "")}</span></div>
     <div class="chips">
       <span class="chip ${b.tipo}">${b.tipo === "gas" ? "Gas" : "Luce"}</span>
-      <span class="chip">${b.segmento === "business" ? "Business / P.IVA" : "Domestico"}</span>
+      <span class="chip ${b.certezzaSegmento === "bassa" && !b.segmentoManuale ? "warn" : ""}">${b.segmento === "business" ? "Business / P.IVA" : "Privato"}${b.segmentoManuale ? " · scelto a mano" : b.certezzaSegmento ? " · certezza " + b.certezzaSegmento : ""}</span>
       ${b.fornitore ? `<span class="chip">Attuale: ${esc(b.fornitore)}</span>` : '<span class="chip warn">Fornitore non riconosciuto</span>'}
       ${b.via === "regole" ? '<span class="chip warn">Lettura base, da verificare</span>' : ""}
     </div>
     <div class="grid">
       <div class="field"><label for="bf-tipo">Fornitura</label><select id="bf-tipo" data-k="tipo"><option value="luce"${b.tipo === "luce" ? " selected" : ""}>Luce</option><option value="gas"${b.tipo === "gas" ? " selected" : ""}>Gas</option></select></div>
-      <div class="field"><label for="bf-segmento">Cliente</label><select id="bf-segmento" data-k="segmento"><option value="domestico"${b.segmento === "domestico" ? " selected" : ""}>Privato / domestico</option><option value="business"${b.segmento === "business" ? " selected" : ""}>Azienda / P.IVA</option></select>${b.motivoSegmento ? `<span class="hint">${esc(b.motivoSegmento)}</span>` : ""}</div>
+      <div class="field"><label for="bf-segmento">Cliente (rilevato in automatico)</label><select id="bf-segmento" data-k="segmento"><option value="domestico"${b.segmento === "domestico" ? " selected" : ""}>Privato / domestico</option><option value="business"${b.segmento === "business" ? " selected" : ""}>Azienda / P.IVA</option></select>${b.motivoSegmento ? `<span class="hint">${esc(b.motivoSegmento)}</span>` : ""}</div>
       ${BILL_FIELDS.map(f => fieldHtml("bf", b, f)).join("")}
     </div>
     <details class="more"><summary>Altri dati della bolletta</summary><div class="grid">${BILL_MORE.map(f => fieldHtml("bf", b, f)).join("")}</div></details>
     <div class="btns"><button class="btn primary" id="btnRecalc" type="button">Aggiorna confronto</button></div>
   </div>`;
-  el.querySelectorAll("[data-k]").forEach(inp => inp.addEventListener("change", () => { readReview(); if (inp.dataset.k === "tipo" || inp.dataset.k === "segmento") { currentBill.iva = defaultIva(currentBill); renderReview(); } renderResults(); }));
+  el.querySelectorAll("[data-k]").forEach(inp => inp.addEventListener("change", () => { readReview(); if (inp.dataset.k === "segmento") currentBill.segmentoManuale = true; if (inp.dataset.k === "tipo" || inp.dataset.k === "segmento") { currentBill.iva = defaultIva(currentBill); renderReview(); } renderResults(); }));
   $("#btnRecalc").onclick = () => { readReview(); renderReview(); renderResults(); };
 }
 function readReview(){
@@ -666,7 +753,10 @@ function confronta(b){
   out.annuo = annuo; out.prezzoAtt = prezzoAtt;
   out.vendAtt = prezzoAtt * annuo + qfAtt * 12;
   out.vendAttIvato = out.vendAtt * ivaK;
-  if (b.totaleBolletta && b.consumoPeriodo) out.totaleAnnuoStimato = b.totaleBolletta * annuo / b.consumoPeriodo;
+  if (b.spesaAnnuaStimata) out.totaleAnnuoStimato = b.spesaAnnuaStimata;
+  else if (b.totaleBolletta && b.consumoPeriodo) out.totaleAnnuoStimato = b.totaleBolletta * annuo / b.consumoPeriodo;
+  out.basePerc = out.totaleAnnuoStimato && out.totaleAnnuoStimato > out.vendAttIvato ? out.totaleAnnuoStimato : out.vendAttIvato;
+  out.basePercLabel = out.basePerc === out.vendAttIvato ? "sul costo vendita" : "sulla spesa annua";
   const oggi = todayISO(); const tol = toNum(settings.tolleranza) || 0;
   const pool = demoMode ? DEMO_OFFERS : offers;
   for (const o of pool) {
@@ -679,10 +769,16 @@ function confronta(b){
     const qp = b.tipo === "luce" && toNum(o.quotaPotenzaMese) && b.potenzaImpegnata ? toNum(o.quotaPotenzaMese) * b.potenzaImpegnata * 12 : 0;
     const vend = pr.p * annuo + (toNum(o.quotaFissaMese) || 0) * 12 + qp;
     const risparmio = (out.vendAtt - vend) * ivaK;
-    const row = { o, prezzo: pr.p, notaPrezzo: pr.nota, vend, vendIvato: vend * ivaK, risparmio, perc: out.vendAtt ? (out.vendAtt - vend) / out.vendAtt : 0, qp };
+    const row = { o, prezzo: pr.p, notaPrezzo: pr.nota, vend, vendIvato: vend * ivaK, risparmio, perc: out.basePerc ? risparmio / out.basePerc : 0, percVend: out.vendAtt ? (out.vendAtt - vend) / out.vendAtt : 0, qp, comp: compensoPer(o, b, annuo) };
     if (risparmio >= -tol) out.ok.push(row); else out.escluse.piuCare.push(o);
   }
   out.ok.sort((a, b2) => b2.risparmio - a.risparmio);
+  out.best = out.ok[0] || null;
+  if (out.ok.length) {
+    out.medioEur = out.ok.reduce((s2, x) => s2 + x.risparmio, 0) / out.ok.length;
+    out.medioPerc = out.ok.reduce((s2, x) => s2 + x.perc, 0) / out.ok.length;
+  }
+  if (sortBy === "compenso") out.ok.sort((a, b2) => (b2.comp?.totale ?? -1) - (a.comp?.totale ?? -1) || b2.risparmio - a.risparmio);
   return out;
 }
 function renderResults(){
@@ -698,13 +794,17 @@ function renderResults(){
   if (ex.scadute.length) exLines.push(`${ex.scadute.length} scadute`);
   if (ex.incomplete.length) exLines.push(`${ex.incomplete.length} non calcolabili: ${esc([...new Set(ex.incomplete.map(o => o.motivo))].join("; "))}`);
   el.innerHTML = `<div class="card">
-    <div class="row"><h2>Offerte con cambio operatore</h2><span class="chip ${r.ok.length ? "ok" : "warn"}">${r.ok.length} proponibili</span></div>
+    <div class="seg-banner"><span class="chip ${b.tipo}">${b.tipo === "gas" ? "Gas" : "Luce"}</span><b>Offerte per ${b.segmento === "business" ? "clienti business / P.IVA" : "clienti privati"}</b><span class="chip ${r.ok.length ? "ok" : "warn"}">${r.ok.length} proponibili</span><span class="muted">solo operatori diversi da ${esc(b.fornitore || "quello attuale")}</span></div>
     <div class="headline">
       <div class="kpi"><span>Consumo annuo${r.annuoStimato ? " (stimato)" : ""}</span><b>${num(r.annuo)} ${u}</b></div>
       <div class="kpi"><span>Prezzo attuale${r.prezzoStimato ? " (stimato)" : ""}</span><b>${num(r.prezzoAtt, 4)} €/${u}</b></div>
       <div class="kpi"><span>Costo vendita attuale/anno</span><b>${eur(r.vendAttIvato)}</b></div>
-      ${r.totaleAnnuoStimato ? `<div class="kpi"><span>Bolletta annua stimata</span><b>${eur(r.totaleAnnuoStimato)}</b></div>` : ""}
+      ${r.totaleAnnuoStimato ? `<div class="kpi"><span>Spesa annua attuale</span><b>${eur(r.totaleAnnuoStimato)}</b></div>` : ""}
+      ${r.ok.length ? `<div class="kpi good"><span>Risparmio medio annuo</span><b>${eur(r.medioEur)} · ${num(r.medioPerc * 100, 1)}%</b></div>
+      <div class="kpi good"><span>Miglior risparmio</span><b>${eur(r.best.risparmio)} · ${num(r.best.perc * 100, 1)}%</b></div>` : ""}
     </div>
+    ${r.ok.length ? `<div class="toolbar"><label class="toggle" for="chkComm"><input type="checkbox" id="chkComm"${showComm ? " checked" : ""}><span>Mostra compensi agente</span></label>
+      <span><label for="selSort" class="muted">Ordina per </label><select id="selSort"><option value="risparmio"${sortBy === "risparmio" ? " selected" : ""}>risparmio cliente</option><option value="compenso"${sortBy === "compenso" ? " selected" : ""}>compenso agente</option></select></span></div>` : ""}
     ${r.prezzoStimato ? '<p class="note">Prezzo attuale ricavato dalla spesa per la materia: include anche dispacciamento e altre voci, quindi il risparmio può risultare sovrastimato. Se possibile inserisci il prezzo energia dal dettaglio della bolletta.</p>' : ""}
     <div class="list">
     ${noOffers ? `<div class="empty"><b>Nessuna offerta ${b.tipo} caricata</b><span>Vai su Offerte CTE e carica le condizioni degli operatori.</span><button class="btn small" type="button" data-go="offerte">Carica CTE</button></div>` :
@@ -712,8 +812,9 @@ function renderResults(){
       r.ok.map((x, i) => `<div class="offer${i === 0 && x.risparmio > 0 ? " best" : ""}">
         <div class="who"><b>${esc(x.o.operatore)}</b><span>${esc(x.o.nomeOfferta || "")}</span>
           <div class="chips"><span class="chip">${x.o.prezzoTipo === "variabile" ? "Variabile" : "Fisso"}</span>${x.o.durataMesi ? `<span class="chip">${esc(x.o.durataMesi)} mesi</span>` : ""}${i === 0 && x.risparmio > 0 ? '<span class="chip ok">Migliore</span>' : ""}</div></div>
-        <div class="save"><span class="muted">Risparmio/anno</span><span class="meter${x.risparmio <= 0.5 ? " zero" : ""}">${x.risparmio <= 0.5 ? "≈ stessa spesa" : eur(x.risparmio)}</span>${x.risparmio > 0.5 ? `<span class="muted">−${num(x.perc * 100, 1)}% sul costo vendita</span>` : ""}</div>
+        <div class="save"><span class="muted">Risparmio medio annuo</span><span class="meter${x.risparmio <= 0.5 ? " zero" : ""}">${x.risparmio <= 0.5 ? "≈ stessa spesa" : eur(x.risparmio)}</span>${x.risparmio > 0.5 ? `<span class="pct">−${num(x.perc * 100, 1)}%</span><span class="muted">${r.basePercLabel}${r.basePercLabel !== "sul costo vendita" ? " · −" + num(x.percVend * 100, 1) + "% sul costo vendita" : ""}</span>` : ""}</div>
         <div class="det"><span>Prezzo <b>${num(x.prezzo, 4)} €/${u}</b>${x.notaPrezzo ? " (" + esc(x.notaPrezzo) + ")" : ""}</span><span>Quota fissa <b>${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese</b></span>${x.qp ? `<span>Quota potenza <b>${eur(x.qp, 0)}/anno</b></span>` : ""}<span>Costo vendita <b>${eur(x.vendIvato)}/anno</b></span>${x.o.validaFino ? `<span>Valida fino al <b>${esc(new Date(x.o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${x.o.note ? `<span>${esc(x.o.note)}</span>` : ""}</div>
+        ${showComm ? (x.comp ? `<div class="comm"><span>Compenso agente stimato <b>${eur(x.comp.totale)}</b></span>${x.comp.fisso ? `<span>gettone <b>${eur(x.comp.fisso)}</b></span>` : ""}${x.comp.variabile ? `<span>variabile <b>${eur(x.comp.variabile)}</b></span>` : ""}${x.comp.ricorrente ? `<span>ricorrente <b>${eur(x.comp.ricorrente)}/anno</b></span>` : ""}${x.comp.note ? `<span>${esc(x.comp.note)}</span>` : ""}</div>` : `<div class="comm muted">Nessuna tabella compensi per ${esc(x.o.operatore)}</div>`) : ""}
       </div>`).join("")}
     </div>
     ${exLines.length ? `<div class="excl">Escluse dal confronto:<ul>${exLines.map(l => "<li>" + l + "</li>").join("")}</ul></div>` : ""}
@@ -721,6 +822,8 @@ function renderResults(){
     <p class="note">Confronto sulle voci del venditore (prezzo e quota fissa), IVA ${num(b.iva ?? defaultIva(b), 1)}% inclusa. Trasporto, oneri di sistema e accise restano invariati con qualsiasi operatore.</p>
   </div>`;
   el.querySelectorAll("[data-go]").forEach(x => x.onclick = () => showTab(x.dataset.go));
+  const cc = $("#chkComm"); if (cc) cc.onchange = () => { showComm = cc.checked; lsSet("cf_showcomm", showComm); renderResults(); };
+  const ss = $("#selSort"); if (ss) ss.onchange = () => { sortBy = ss.value; renderResults(); };
   const cb = $("#btnCopy");
   if (cb) cb.onclick = async () => { const ta = $("#summaryText"); try { await navigator.clipboard.writeText(ta.value); $("#copyMsg").textContent = "Copiato"; } catch { ta.focus(); ta.select(); $("#copyMsg").textContent = "Testo selezionato: copia con Ctrl+C o tieni premuto"; } };
 }
@@ -730,8 +833,9 @@ function riepilogo(b, r){
   s += `Fornitore attuale: ${b.fornitore || "n.d."}${b.nomeOfferta ? " (" + b.nomeOfferta + ")" : ""}\n`;
   s += `Consumo annuo: ${num(r.annuo)} ${u} · prezzo attuale ${num(r.prezzoAtt, 4)} €/${u}\n\nAlternative con cambio operatore:\n`;
   r.ok.slice(0, 5).forEach((x, i) => {
-    s += `${i + 1}. ${x.o.operatore} – ${x.o.nomeOfferta || ""}: ${num(x.prezzo, 4)} €/${u}, quota fissa ${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese → ${x.risparmio > 0.5 ? "risparmio stimato " + eur(x.risparmio) + "/anno IVA inclusa" : "spesa equivalente"}\n`;
+    s += `${i + 1}. ${x.o.operatore} – ${x.o.nomeOfferta || ""}: ${num(x.prezzo, 4)} €/${u}, quota fissa ${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese → ${x.risparmio > 0.5 ? "risparmio stimato " + eur(x.risparmio) + "/anno IVA inclusa (−" + num(x.perc * 100, 1) + "% " + r.basePercLabel + ")" : "spesa equivalente"}\n`;
   });
+  if (r.medioEur) s += `\nRisparmio medio annuo delle alternative: ${eur(r.medioEur)} (−${num(r.medioPerc * 100, 1)}%)\n`;
   s += `\nStima basata sui consumi in bolletta; trasporto, oneri e imposte restano invariati.`;
   return s;
 }
@@ -795,11 +899,21 @@ function readOfferForm(root, o){
 }
 function renderDrafts(){
   const el = $("#cteDrafts");
-  el.innerHTML = drafts.map((o, i) => `<div class="card" data-draft="${i}">
+  el.innerHTML = (drafts.length > 1 ? `<div class="btns"><button class="btn primary" id="btnSaveAllCte" type="button"${canWrite ? "" : " disabled"}>Salva tutte le ${drafts.length} offerte</button></div>` : "") + drafts.map((o, i) => `<div class="card" data-draft="${i}">
     <div class="row"><h3>${o.id ? "Modifica offerta" : "Nuova offerta da controllare"}</h3><div class="chips"><span class="chip ${o.tipo}">${o.tipo}</span>${o.via === "regole" ? '<span class="chip warn">Lettura base</span>' : ""}${o.fonte ? `<span class="chip">${esc(o.fonte)}</span>` : ""}</div></div>
     ${offerForm(o, "d" + i)}
     <div class="btns"><button class="btn primary" data-act="save" type="button"${canWrite ? "" : " disabled"}>Salva offerta</button><button class="btn" data-act="discard" type="button">Scarta</button><span class="muted" data-msg></span></div>
   </div>`).join("");
+  const sa = $("#btnSaveAllCte");
+  if (sa) sa.onclick = async () => {
+    sa.disabled = true; let ok = 0, ko = 0;
+    el.querySelectorAll("[data-draft]").forEach(card => readOfferForm(card, drafts[+card.dataset.draft]));
+    for (const o of [...drafts]) {
+      if (!o.operatore || (o.prezzoTipo === "fisso" && o.prezzo == null && o.prezzoF1 == null)) { ko++; continue; }
+      try { const c = Object.assign({}, o); delete c.via; await store.saveOffer(c); drafts.splice(drafts.indexOf(o), 1); ok++; } catch { ko++; }
+    }
+    renderDrafts(); setStatus($("#cteStatus"), ko ? "" : "ok", `${ok} offerte salvate${ko ? `, ${ko} da completare (operatore o prezzo mancanti)` : ""}.`);
+  };
   el.querySelectorAll("[data-draft]").forEach(card => {
     const i = +card.dataset.draft;
     card.querySelectorAll("select[data-k]").forEach(s => s.addEventListener("change", () => { readOfferForm(card, drafts[i]); renderDrafts(); }));
@@ -840,6 +954,142 @@ function renderOffers(){
 const avgF = o => [o.prezzoF1, o.prezzoF2, o.prezzoF3].every(x => toNum(x) != null) ? (toNum(o.prezzoF1) + toNum(o.prezzoF2) + toNum(o.prezzoF3)) / 3 : null;
 
 /* ============================================================
+   COMPENSI AGENTE
+   ============================================================ */
+const COMM_PROMPT = `Sei un esperto di provvigioni per agenti del mercato libero italiano di luce e gas.
+Il documento qui sotto è una tabella compensi (provvigioni / gettoni) di uno o più operatori. Trasformalo in regole.
+Rispondi SOLO con JSON: {"regole":[ ... ]}, dove ogni regola è:
+{
+ "operatore": string,                         // società di vendita a cui si riferisce
+ "offerta": string | null,                    // nome offerta se la regola vale solo per quella, altrimenti null
+ "tipo": "luce" | "gas" | "entrambi",
+ "segmento": "domestico" | "business" | "entrambi",
+ "consumoMin": number | null,                 // limite inferiore della fascia di consumo annuo (kWh per luce, Smc per gas)
+ "consumoMax": number | null,                 // limite superiore della fascia (null = senza limite)
+ "fisso": number | null,                      // € una tantum per contratto / POD / PDR attivato
+ "variabileMille": number | null,             // € per MWh di consumo annuo (luce) o per 1000 Smc annui (gas)
+ "ricorrenteAnno": number | null,             // € ricorrenti per anno (se mensile moltiplica per 12)
+ "note": string | null                        // condizioni (es. pagato dopo 6 mesi di fornitura, storno se recesso)
+}
+Conversioni: €/kWh => ×1000 per avere €/MWh; c€/kWh => ×10; €/Smc => ×1000. Una riga per ogni fascia di consumo. Numeri con il punto decimale. Se un dato manca usa null, non inventare.`;
+let commDrafts = [];
+function normComm(r, fonte, via){
+  return { id: r.id, fonte: fonte || r.fonte || "", via,
+    operatore: r.operatore || "", offerta: r.offerta || "",
+    tipo: ["luce","gas","entrambi"].includes(r.tipo) ? r.tipo : "entrambi",
+    segmento: ["domestico","business","entrambi"].includes(r.segmento) ? r.segmento : "entrambi",
+    consumoMin: toNum(r.consumoMin), consumoMax: toNum(r.consumoMax),
+    fisso: toNum(r.fisso), variabileMille: toNum(r.variabileMille), ricorrenteAnno: toNum(r.ricorrenteAnno), note: r.note || "" };
+}
+function stessoOpComm(a, b){ const na = normOp(a), nb = normOp(b); return !!na && !!nb && (na === nb || na.includes(nb) || nb.includes(na)); }
+function compensoPer(o, b, annuo){
+  const rs = (demoMode ? DEMO_COMM : compensi).filter(r => stessoOpComm(r.operatore, o.operatore)
+    && (r.tipo === "entrambi" || r.tipo === b.tipo)
+    && (r.segmento === "entrambi" || r.segmento === b.segmento)
+    && (toNum(r.consumoMin) == null || annuo >= toNum(r.consumoMin))
+    && (toNum(r.consumoMax) == null || annuo <= toNum(r.consumoMax))
+    && (!r.offerta || stessoOpComm(r.offerta, o.nomeOfferta || "")));
+  if (!rs.length) return null;
+  const width = r => (toNum(r.consumoMax) ?? 1e12) - (toNum(r.consumoMin) ?? 0);
+  rs.sort((a, c) => (c.offerta ? 1 : 0) - (a.offerta ? 1 : 0) || width(a) - width(c));
+  const r = rs[0];
+  const fisso = toNum(r.fisso) || 0, variabile = (toNum(r.variabileMille) || 0) * annuo / 1000, ricorrente = toNum(r.ricorrenteAnno) || 0;
+  return { fisso, variabile, ricorrente, totale: fisso + variabile + ricorrente, note: r.note || "" };
+}
+let xlsxPromise = null;
+function loadXlsx(){
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxPromise) xlsxPromise = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; sc.onload = () => res(window.XLSX); sc.onerror = () => rej(new Error("Lettore Excel non disponibile")); document.head.appendChild(sc); });
+  return xlsxPromise;
+}
+async function prepareAny(file){
+  if (/\.(xlsx|xls)$/i.test(file.name)) {
+    const X = await loadXlsx(); const wb = X.read(await file.arrayBuffer(), { type: "array" });
+    return { text: wb.SheetNames.map(n => "### Foglio " + n + "\n" + X.utils.sheet_to_csv(wb.Sheets[n], { FS: ";" })).join("\n\n"), images: [] };
+  }
+  if (/\.csv$/i.test(file.name) || file.type === "text/csv") return { text: await file.text(), images: [] };
+  return prepareFile(file);
+}
+async function handleCommFiles(files){
+  const st = $("#commStatus");
+  for (const file of files) {
+    try {
+      setStatus(st, "busy", "Leggo la tabella <b>" + esc(file.name) + "</b>…");
+      const prep = await prepareAny(file);
+      setStatus(st, "busy", "Estraggo le regole di compenso da <b>" + esc(file.name) + "</b>…");
+      const r = await askClaudeJson(COMM_PROMPT + "\n\n=== TABELLA ===\n" + (prep.text || "(usa le immagini allegate)").slice(0, 120000), prep.images);
+      if (!r.data) { commDrafts.push(normComm({ note: "Da compilare a mano (" + file.name + ")" }, file.name, "manuale")); setStatus(st, "", "Analisi AI non disponibile (" + esc(r.why) + "): compila la regola a mano."); }
+      else { const list = Array.isArray(r.data) ? r.data : (r.data.regole || [r.data]); list.forEach(x => commDrafts.push(normComm(x, file.name, "ai"))); setStatus(st, "ok", `Estratte ${list.length} regole da ${esc(file.name)}: controlla e salva.`); }
+    } catch (e) { setStatus(st, "err", "Non riesco a leggere " + esc(file.name) + ": " + esc(e.message || e)); }
+    renderCommDrafts();
+  }
+}
+function commForm(r, p){
+  const f = (k, label, type = "number", extra = "") => `<div class="field${extra}"><label for="${p}-${k}">${esc(label)}</label><input id="${p}-${k}" data-k="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(r[k] ?? "")}"></div>`;
+  const sel = (k, label, opts) => `<div class="field"><label for="${p}-${k}">${label}</label><select id="${p}-${k}" data-k="${k}">${opts.map(([v, t]) => `<option value="${v}"${r[k] === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>`;
+  const u = r.tipo === "gas" ? "Smc" : r.tipo === "luce" ? "kWh" : "kWh/Smc";
+  return `<div class="grid">
+    ${f("operatore", "Operatore", "text", r.operatore ? "" : " missing")}${f("offerta", "Solo per l'offerta (vuoto = tutte)", "text")}
+    ${sel("tipo", "Fornitura", [["entrambi","Luce e gas"],["luce","Luce"],["gas","Gas"]])}
+    ${sel("segmento", "Cliente", [["entrambi","Privati e business"],["domestico","Privati"],["business","Business"]])}
+    ${f("consumoMin", "Consumo annuo da (" + u + ")")}${f("consumoMax", "Consumo annuo fino a (" + u + ")")}
+    ${f("fisso", "Gettone € per contratto")}${f("variabileMille", r.tipo === "gas" ? "€ per 1000 Smc/anno" : "€ per MWh/anno")}
+    ${f("ricorrenteAnno", "Ricorrente €/anno")}
+    <div class="field wide"><label for="${p}-note">Note</label><input id="${p}-note" data-k="note" type="text" value="${esc(r.note)}"></div>
+  </div>`;
+}
+function renderCommDrafts(){
+  const el = $("#commDrafts");
+  el.innerHTML = (commDrafts.length > 1 ? `<div class="btns"><button class="btn primary" id="btnSaveAllComm" type="button"${canWrite ? "" : " disabled"}>Salva tutte le ${commDrafts.length} regole</button></div>` : "") +
+    commDrafts.map((r, i) => `<div class="card" data-cd="${i}">
+      <div class="row"><h3>${r.id ? "Modifica regola" : "Nuova regola da controllare"}</h3>${r.fonte ? `<span class="chip">${esc(r.fonte)}</span>` : ""}</div>
+      ${commForm(r, "cd" + i)}
+      <div class="btns"><button class="btn primary" data-act="save" type="button"${canWrite ? "" : " disabled"}>Salva regola</button><button class="btn" data-act="discard" type="button">Scarta</button><span class="muted" data-msg></span></div>
+    </div>`).join("");
+  const sa = $("#btnSaveAllComm");
+  if (sa) sa.onclick = async () => {
+    sa.disabled = true; let ok = 0, ko = 0;
+    el.querySelectorAll("[data-cd]").forEach(card => readOfferForm(card, commDrafts[+card.dataset.cd]));
+    for (const r of [...commDrafts]) { if (!r.operatore) { ko++; continue; } try { await store.saveComm(r); commDrafts.splice(commDrafts.indexOf(r), 1); ok++; } catch { ko++; } }
+    renderCommDrafts(); setStatus($("#commStatus"), ko ? "" : "ok", `${ok} regole salvate${ko ? `, ${ko} senza operatore` : ""}.`);
+  };
+  el.querySelectorAll("[data-cd]").forEach(card => {
+    const i = +card.dataset.cd;
+    card.querySelectorAll("select[data-k]").forEach(sl => sl.addEventListener("change", () => { readOfferForm(card, commDrafts[i]); renderCommDrafts(); }));
+    card.querySelector('[data-act="discard"]').onclick = () => { commDrafts.splice(i, 1); renderCommDrafts(); };
+    card.querySelector('[data-act="save"]').onclick = async ev => {
+      const r = readOfferForm(card, commDrafts[i]); const msg = card.querySelector("[data-msg]");
+      if (!r.operatore) { msg.textContent = "Indica l'operatore."; return; }
+      ev.target.disabled = true; msg.textContent = "Salvataggio…";
+      try { await store.saveComm(r); commDrafts.splice(i, 1); renderCommDrafts(); setStatus($("#commStatus"), "ok", "Regola per " + esc(r.operatore) + " salvata."); }
+      catch (e) { ev.target.disabled = false; msg.innerHTML = dbErr(e); }
+    };
+  });
+}
+function renderComm(){
+  $("#commCount").textContent = compensi.length;
+  const el = $("#commList"); if (!el) return;
+  if (!compensi.length) { el.innerHTML = `<div class="empty"><b>Nessuna tabella compensi</b><span>Facoltativo: se carichi le tabelle, accanto a ogni offerta vedi il compenso stimato.</span></div>`; return; }
+  const lab = { entrambi: "luce e gas", luce: "luce", gas: "gas" }, seg = { entrambi: "privati e business", domestico: "privati", business: "business" };
+  el.innerHTML = [...compensi].sort((a, b) => (a.operatore + (a.consumoMin ?? 0)).localeCompare(b.operatore + (b.consumoMin ?? 0))).map(r => {
+    const u = r.tipo === "gas" ? "Smc" : "kWh";
+    const fascia = toNum(r.consumoMin) != null || toNum(r.consumoMax) != null ? `${num(toNum(r.consumoMin) ?? 0)}–${toNum(r.consumoMax) != null ? num(toNum(r.consumoMax)) : "∞"} ${u}/anno` : "tutti i consumi";
+    const parts = [toNum(r.fisso) ? eur(toNum(r.fisso)) + " gettone" : "", toNum(r.variabileMille) ? eur(toNum(r.variabileMille), 2) + (r.tipo === "gas" ? "/1000 Smc" : "/MWh") : "", toNum(r.ricorrenteAnno) ? eur(toNum(r.ricorrenteAnno)) + "/anno" : ""].filter(Boolean).join(" + ") || "—";
+    return `<div class="offer"><div class="who"><b>${esc(r.operatore)}</b><span>${r.offerta ? esc(r.offerta) : "Tutte le offerte"}</span>
+      <div class="chips"><span class="chip">${lab[r.tipo] || r.tipo}</span><span class="chip">${seg[r.segmento] || r.segmento}</span><span class="chip">${fascia}</span></div></div>
+      <div class="save"><span class="meter">${parts}</span></div>
+      <div class="det">${r.note ? `<span>${esc(r.note)}</span>` : ""}<span class="btns">${canWrite ? `<button class="btn small" data-cedit="${esc(r.id)}" type="button">Modifica</button><button class="btn small danger" data-cdel="${esc(r.id)}" type="button">Elimina</button>` : ""}</span></div></div>`;
+  }).join("");
+  el.querySelectorAll("[data-cedit]").forEach(bt => bt.onclick = () => { const r = compensi.find(x => x.id === bt.dataset.cedit); commDrafts.unshift(normComm(r, r.fonte, "ai")); renderCommDrafts(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  el.querySelectorAll("[data-cdel]").forEach(bt => bt.onclick = async () => {
+    if (bt.dataset.confirm !== "1") { bt.dataset.confirm = "1"; bt.textContent = "Conferma eliminazione"; setTimeout(() => { bt.dataset.confirm = ""; bt.textContent = "Elimina"; }, 4000); return; }
+    bt.disabled = true; try { await store.deleteComm(bt.dataset.cdel); } catch { bt.disabled = false; bt.textContent = "Errore"; }
+  });
+}
+$("#commFile").onchange = e => { handleCommFiles([...e.target.files]); e.target.value = ""; };
+$("#btnAddComm").onclick = () => { commDrafts.unshift(normComm({}, "", "manuale")); renderCommDrafts(); };
+
+/* ============================================================
    Impostazioni
    ============================================================ */
 function fillSettings(){
@@ -864,10 +1114,14 @@ const DEMO_OFFERS = [
   { id: "d3", operatore: "Enel Energia", nomeOfferta: "Offerta stesso operatore (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.10, quotaFissaMese: 6 },
   { id: "d4", operatore: "Operatore Gamma", nomeOfferta: "Prezzo Alto (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.17, quotaFissaMese: 12 },
 ];
+const DEMO_COMM = [
+  { operatore: "Operatore Alfa", tipo: "luce", segmento: "domestico", fisso: 40, variabileMille: 5, note: "esempio" },
+  { operatore: "Operatore Beta", tipo: "entrambi", segmento: "entrambi", fisso: 25, ricorrenteAnno: 6, note: "esempio" },
+];
 $("#btnDemo").onclick = () => {
   demoMode = true; $("#billIntro").hidden = true; setStatus($("#billStatus"), "", "");
   if (settings.pun == null) settings.pun = 0.115;
-  currentBill = normalizeBill({ tipo: "luce", segmento: "domestico", motivoSegmento: "Tipologia: uso domestico residente", fornitore: "Enel Energia S.p.A.", nomeOfferta: "Offerta di esempio",
+  currentBill = normalizeBill({ tipo: "luce", segmento: "domestico", motivoSegmento: "tipologia 'uso domestico', IVA 10%", certezzaSegmento: "alta", fornitore: "Enel Energia S.p.A.", nomeOfferta: "Offerta di esempio",
     intestatario: "Mario Rossi (esempio)", codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
   renderReview(); renderResults();
 };
@@ -877,7 +1131,7 @@ $("#btnDemo").onclick = () => {
    ============================================================ */
 function showTab(name){
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false"));
-  ["bolletta","offerte","impostazioni"].forEach(n => $("#panel-" + n).hidden = n !== name);
+  ["bolletta","offerte","compensi","impostazioni"].forEach(n => $("#panel-" + n).hidden = n !== name);
   try { localStorage.setItem("cf_tab", name); } catch {}
 }
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => showTab(t.dataset.tab));
@@ -895,8 +1149,9 @@ function wireDrop(zone, onFiles){
 }
 wireDrop($("#dropBill"), f => handleBillFile(f[0]));
 wireDrop($("#dropCte"), f => handleCteFiles(f));
+wireDrop($("#dropComm"), f => handleCommFiles(f));
 
-fillSettings(); renderOffers();
+fillSettings(); renderOffers(); renderComm();
 try { const t = localStorage.getItem("cf_tab"); if (t) showTab(t); } catch {}
 store.init();
 </script>
