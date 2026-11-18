@@ -101,6 +101,13 @@ details.more[open] summary{margin-bottom:10px}
 .excl{font-size:.85rem;color:var(--muted)}
 .excl ul{margin:6px 0 0;padding-left:18px}
 .kpi.good b{color:var(--ok)}
+.kpi small{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.kpi small b{font-family:var(--mono);font-size:.82rem;color:var(--fg)}
+.agev{display:flex;flex-direction:column;gap:8px}
+.agev .it{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start;padding:10px 12px;border-radius:8px;background:var(--surface-2)}
+.agev .it p{grid-column:2;font-size:.86rem;color:var(--muted)}
+.agev .it b{font-family:var(--display)}
+.profilo{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
 .pct{font-family:var(--mono);font-weight:600;font-size:1.05rem;color:var(--ok)}
 .comm{grid-column:1/-1;font-size:.85rem;background:var(--surface-2);border-radius:7px;padding:7px 10px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .comm b{font-family:var(--mono)}
@@ -494,7 +501,10 @@ Estrai i dati dalla bolletta qui sotto (testo estratto da PDF e/o immagini alleg
  "spesaMateriaPeriodo": number | null,           // € "spesa per la materia energia" / "spesa per la materia gas naturale" del periodo, IVA esclusa
  "totaleBolletta": number | null,                // € totale da pagare
  "spesaAnnuaStimata": number | null,             // € spesa annua stimata o "spesa ultimi 12 mesi" se indicata in bolletta
- "iva": number | null                            // aliquota IVA % applicata (10 o 22)
+ "iva": number | null,                           // aliquota IVA % applicata: 10 o 22; 0 se esente o non imponibile (es. esportatore abituale, art. 8)
+ "motivoIva": string | null,                     // dicitura IVA in bolletta (es. "IVA 10% uso domestico", "non imponibile art. 8 c.1 lett. c")
+ "codiceAteco": string | null,                   // codice ATECO dell'attività se indicato
+ "bonusSociale": boolean | null                  // true se in bolletta è applicato un bonus sociale
 }
 Numeri con il punto come separatore decimale, nessun simbolo. Se un dato non è presente metti null: non inventare.`;
 
@@ -516,6 +526,8 @@ Rispondi SOLO con JSON: {"offerte":[ ... ]}, dove ogni offerta è:
  "quotaPotenzaMese": number | null,  // eventuale quota €/kW/mese applicata dal venditore (solo luce)
  "durataMesi": number | null,        // durata del prezzo bloccato / delle condizioni
  "validaFino": "YYYY-MM-DD" | null,  // data fino a cui è sottoscrivibile
+ "riservataA": "" | "over75" | "disabili" | "vulnerabili" | "ateco",  // "" se aperta a tutti; altrimenti la categoria a cui è riservata
+ "atecoAmmessi": string | null,       // se riservata a settori: codici o prefissi ATECO separati da virgola (es. "01, 55, 56.10")
  "note": string | null               // vincoli rilevanti (es. sconti condizionati, bolletta web, domiciliazione)
 }
 Numeri con il punto decimale. Converti c€ in € (es. 12,5 c€/kWh => 0.125). Se un dato manca usa null, non inventare.`;
@@ -650,6 +662,8 @@ function normalizeBill(d, nomeFile, via){
     segmento: d.segmento === "business" ? "business" : "domestico",
     motivoSegmento: d.motivoSegmento || "", certezzaSegmento: d.certezzaSegmento || "", segmentoManuale: false,
     spesaAnnuaStimata: toNum(d.spesaAnnuaStimata),
+    codiceFiscaleCliente: d.codiceFiscaleCliente || "", partitaIvaCliente: d.partitaIvaCliente || "", codiceAteco: d.codiceAteco || "",
+    motivoIva: d.motivoIva || "", bonusSociale: !!d.bonusSociale, profilo: d.profilo || {},
     fornitore: d.fornitore || "", nomeOfferta: d.nomeOfferta || "", intestatario: d.intestatario || "",
     codicePunto: d.codicePunto || "", indirizzoFornitura: d.indirizzoFornitura || "",
     periodoDal: d.periodoDal || "", periodoAl: d.periodoAl || "",
@@ -672,6 +686,10 @@ const BILL_FIELDS = [
   ["prezzoUnitario", "Prezzo energia attuale €/U", "number", "Solo componente del venditore, IVA esclusa"],
   ["quotaFissaMese", "Quota fissa vendita €/mese", "number"],
   ["potenzaImpegnata", "Potenza impegnata kW", "number", null, false, "luce"],
+  ["iva", "IVA applicata %", "number", "0 = esente / non imponibile · 10 · 22"],
+  ["codiceFiscaleCliente", "Codice fiscale cliente", "text", "Serve per verificare over 75", false, null, "domestico"],
+  ["codiceAteco", "Codice ATECO", "text", "Per verificare agevolazioni di settore", false, null, "business"],
+  ["partitaIvaCliente", "P.IVA cliente", "text", null, false, null, "business"],
 ];
 const BILL_MORE = [
   ["periodoDal", "Periodo dal", "date"], ["periodoAl", "Periodo al", "date"],
@@ -680,11 +698,11 @@ const BILL_MORE = [
   ["totaleBolletta", "Totale bolletta €", "number"],
   ["spesaAnnuaStimata", "Spesa annua attuale €", "number", "Se nota (base per il risparmio %)"],
   ["consumoF1", "Consumo F1 kWh", "number", null, false, "luce"], ["consumoF2", "Consumo F2 kWh", "number", null, false, "luce"], ["consumoF3", "Consumo F3 kWh", "number", null, false, "luce"],
-  ["iva", "IVA %", "number", "10% domestico, 22% business"],
   ["indirizzoFornitura", "Indirizzo fornitura", "text"],
 ];
-function fieldHtml(prefix, obj, [k, label, type, hint, required, onlyTipo]){
+function fieldHtml(prefix, obj, [k, label, type, hint, required, onlyTipo, onlySeg]){
   if (onlyTipo && obj.tipo !== onlyTipo) return "";
+  if (onlySeg && obj.segmento !== onlySeg) return "";
   const v = obj[k]; const u = unit(obj.tipo);
   const lab = label.replace(/\bU\b/, u); const h = hint === "U" ? u : hint;
   const miss = required && (v == null || v === "");
@@ -709,16 +727,99 @@ function renderReview(){
       ${BILL_FIELDS.map(f => fieldHtml("bf", b, f)).join("")}
     </div>
     <details class="more"><summary>Altri dati della bolletta</summary><div class="grid">${BILL_MORE.map(f => fieldHtml("bf", b, f)).join("")}</div></details>
+    ${b.segmento === "domestico" ? `<div class="field wide"><label>Profilo del cliente (chiedi al cliente: non si ricava dalla bolletta)</label><div class="profilo">
+      ${[["l104","Disabilità grave (L. 104 art. 3)"],["salvavita","Apparecchiature elettromedicali salvavita"],["isee","ISEE sotto soglia bonus sociale"],["isole","Residente in isola minore non interconnessa"],["emergenza","Abitazione di emergenza (calamità)"]].map(([k, t]) => `<label class="toggle" for="pf-${k}"><input type="checkbox" id="pf-${k}" data-pf="${k}"${b.profilo[k] ? " checked" : ""}><span>${t}</span></label>`).join("")}
+    </div></div>` : ""}
     <div class="btns"><button class="btn primary" id="btnRecalc" type="button">Aggiorna confronto</button></div>
   </div>`;
   el.querySelectorAll("[data-k]").forEach(inp => inp.addEventListener("change", () => { readReview(); if (inp.dataset.k === "segmento") currentBill.segmentoManuale = true; if (inp.dataset.k === "tipo" || inp.dataset.k === "segmento") { currentBill.iva = defaultIva(currentBill); renderReview(); } renderResults(); }));
   $("#btnRecalc").onclick = () => { readReview(); renderReview(); renderResults(); };
+  el.querySelectorAll("[data-pf]").forEach(c => c.onchange = () => { currentBill.profilo[c.dataset.pf] = c.checked; renderResults(); });
 }
 function readReview(){
   $("#billReview").querySelectorAll("[data-k]").forEach(inp => {
     const k = inp.dataset.k; currentBill[k] = inp.type === "number" ? toNum(inp.value) : inp.value;
   });
 }
+
+/* --- agevolazioni --- */
+function nascitaDaCF(cf){
+  cf = String(cf || "").toUpperCase().replace(/\s/g, "");
+  if (!/^[A-Z]{6}[0-9LMNPQRSTUV]{2}[ABCDEHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/.test(cf)) return null;
+  const om = { L:0, M:1, N:2, P:3, Q:4, R:5, S:6, T:7, U:8, V:9 };
+  const dig = x => +x.split("").map(c => /\d/.test(c) ? c : om[c]).join("");
+  const yy = dig(cf.slice(6, 8)), mm = "ABCDEHLMPRST".indexOf(cf[8]); let dd = dig(cf.slice(9, 11)); if (dd > 40) dd -= 40;
+  const now = new Date(); const year = yy > now.getFullYear() % 100 ? 1900 + yy : 2000 + yy;
+  const nascita = new Date(year, mm, dd);
+  let eta = now.getFullYear() - year; if (now < new Date(now.getFullYear(), mm, dd)) eta--;
+  return { nascita, eta };
+}
+function atecoInfo(code){
+  const c = String(code || "").replace(/[^0-9.]/g, ""); const d2 = parseInt(c.slice(0, 2), 10);
+  if (!c || isNaN(d2)) return null;
+  const sez = d2 <= 3 ? "A" : d2 <= 9 ? "B" : d2 <= 33 ? "C" : d2 === 55 ? "I55" : d2 === 56 ? "I56" : d2 >= 45 && d2 <= 47 ? "G" : d2 === 93 ? "R93" : "altro";
+  const editoria = /^58\.1/.test(c);
+  return { code: c, d2, sez, agricola: sez === "A", estrattiva: sez === "B", manifatturiera: sez === "C", editoria };
+}
+function requisitiCliente(b){
+  const cf = b.segmento === "domestico" ? nascitaDaCF(b.codiceFiscaleCliente) : null;
+  const pf = b.profilo || {};
+  const over75 = !!(cf && cf.eta >= 75);
+  const disabili = !!(pf.l104 || pf.salvavita);
+  const vulnerabile = b.segmento === "domestico" && (over75 || pf.l104 || pf.salvavita || pf.isee || pf.isole || pf.emergenza || b.bonusSociale);
+  return { cf, over75, disabili, vulnerabile, ateco: atecoInfo(b.codiceAteco) };
+}
+function offertaAmmessa(o, req){
+  const r = o.riservataA || "";
+  if (!r) return { ok: true };
+  if (r === "over75") return { ok: req.over75, label: "Dedicata over 75" };
+  if (r === "disabili") return { ok: req.disabili, label: "Dedicata a disabili / L. 104" };
+  if (r === "vulnerabili") return { ok: req.vulnerabile, label: "Dedicata a clienti vulnerabili" };
+  if (r === "ateco") {
+    const list = String(o.atecoAmmessi || "").split(/[,;\s]+/).map(x => x.replace(/[^0-9.]/g, "")).filter(Boolean);
+    const ok = !!req.ateco && list.some(pfx => req.ateco.code.startsWith(pfx));
+    return { ok, label: "Dedicata al settore ATECO " + list.join(", ") };
+  }
+  return { ok: true };
+}
+function analizzaAgevolazioni(b, annuo){
+  const req = requisitiCliente(b), out = [];
+  const add = (stato, titolo, testo) => out.push({ stato, titolo, testo });
+  const iva = b.iva ?? defaultIva(b);
+  if (b.segmento === "domestico") {
+    if (!b.codiceFiscaleCliente) add("info", "Inserisci il codice fiscale", "Serve per verificare l'età del cliente (agevolazioni e offerte per over 75).");
+    else if (!req.cf) add("info", "Codice fiscale non valido", "Controlla il codice fiscale: non riesco a ricavare la data di nascita.");
+    else if (req.over75) add("si", `Cliente over 75 (${req.cf.eta} anni)`, "Rientra tra i clienti vulnerabili (ARERA). Proponi le offerte dedicate agli over 75, se presenti tra le CTE.");
+    if (b.profilo?.l104) add("si", "Disabilità grave (L. 104)", "Cliente vulnerabile: verifica le offerte dedicate e il diritto al servizio di tutela della vulnerabilità.");
+    if (b.profilo?.salvavita) add("si", "Bonus per disagio fisico", "Con apparecchiature salvavita spetta il bonus per disagio fisico (domanda al Comune o CAF con certificato ASL). È cumulabile con il bonus sociale.");
+    if (b.bonusSociale) add("si", "Bonus sociale già applicato", "In bolletta risulta un bonus sociale: resta valido anche cambiando fornitore, perché è legato all'ISEE e non all'operatore.");
+    else if (b.profilo?.isee) add("si", "Possibile bonus sociale", "Con ISEE sotto soglia il bonus sociale si attiva in automatico presentando la DSU all'INPS (soglie 2025: 9.530 €, 20.000 € con almeno 4 figli; verifica quelle in vigore).");
+    if (b.profilo?.isole || b.profilo?.emergenza) add("si", "Cliente vulnerabile", "Residenza in isola minore non interconnessa o abitazione di emergenza: rientra tra i clienti vulnerabili.");
+    if (req.vulnerabile) add("attenzione", "Servizio di tutela della vulnerabilità", "Il cliente può chiedere le condizioni regolate ARERA per i vulnerabili. Confrontale con le offerte prima di proporre il cambio.");
+    if (iva !== 10 && b.tipo === "luce") add("attenzione", "IVA da controllare", `Per uso domestico l'IVA sulla luce è del 10%: in bolletta risulta ${ivaLabel(iva)}.`);
+  } else {
+    const a = req.ateco;
+    if (!a) add("info", "Inserisci il codice ATECO", "Dal codice ATECO verifico IVA agevolata, energivori/gasivori e accise per usi industriali.");
+    else {
+      const ridotta = a.agricola || a.estrattiva || a.manifatturiera || a.editoria;
+      if (ridotta && iva === 22) add("si", "IVA agevolata al 10%", `ATECO ${esc(a.code)} (impresa ${a.agricola ? "agricola" : a.estrattiva ? "estrattiva" : a.editoria ? "editoriale" : "manifatturiera"}): l'energia per l'attività può avere IVA al 10% invece del 22%. Serve una dichiarazione al fornitore. Risparmio IVA circa ${eur(((b.totaleBolletta && b.consumoPeriodo) ? b.totaleBolletta / 1.22 * annuo / b.consumoPeriodo : 0) * 0.12)}/anno.`);
+      else if (ridotta && iva === 10) add("si", "IVA agevolata già applicata", "Ricorda di inviare la dichiarazione per l'IVA al 10% anche al nuovo fornitore.");
+      if (b.tipo === "luce" && (a.estrattiva || a.manifatturiera)) {
+        if (annuo >= 1000000) add("si", "Potenziale impresa energivora", "Consumo di almeno 1 GWh/anno in un settore manifatturiero o estrattivo: verifica l'iscrizione all'elenco energivori CSEA per l'agevolazione sugli oneri di sistema.");
+        else add("info", "Energivori: soglia non raggiunta", `Il settore rientra, ma il consumo (${num(annuo)} kWh) è sotto 1 GWh/anno.`);
+      }
+      if (b.tipo === "gas" && (a.estrattiva || a.manifatturiera)) {
+        if (annuo >= 94800) add("si", "Potenziale impresa gasivora", "Consumo di almeno 1 GWh/anno (circa 94.800 Smc) in un settore manifatturiero o estrattivo: verifica l'iscrizione all'elenco gasivori CSEA.");
+        else add("info", "Gasivori: soglia non raggiunta", `Il consumo (${num(annuo)} Smc) è sotto 1 GWh/anno (circa 94.800 Smc).`);
+      }
+      if (b.tipo === "gas" && (ridotta || ["I55","I56","G","R93"].includes(a.sez))) add("attenzione", "Accisa gas per usi industriali", "Per questo settore (industria, agricoltura, artigianato, alberghi, ristorazione, commercio, sport dilettantistico) l'accisa sul gas è ridotta: controlla che in bolletta sia applicata l'aliquota per usi industriali.");
+      if (!out.length) add("info", "Nessuna agevolazione di settore individuata", `Per l'ATECO ${esc(a.code)} non risultano agevolazioni specifiche sull'energia.`);
+    }
+    if (iva === 0) add("attenzione", "Fornitura esente / non imponibile IVA", "Il cliente usa l'esenzione (es. esportatore abituale): va trasmessa la dichiarazione d'intento anche al nuovo fornitore.");
+  }
+  return { req, items: out };
+}
+const ivaLabel = v => v === 0 ? "esente / non imponibile" : num(v, v % 1 ? 1 : 0) + "%";
 
 /* --- motore di confronto --- */
 function prezzoOfferta(o, b){
@@ -739,7 +840,8 @@ function prezzoOfferta(o, b){
   return { p: toNum(o.prezzo) };
 }
 function confronta(b){
-  const out = { ok: [], escluse: { stesso: [], piuCare: [], segmento: [], scadute: [], incomplete: [] } };
+  const out = { ok: [], escluse: { stesso: [], piuCare: [], segmento: [], scadute: [], incomplete: [], riservate: [] } };
+  const req = requisitiCliente(b);
   let annuo = b.consumoAnnuo;
   if (!annuo && b.consumoPeriodo && b.mesiPeriodo) { annuo = b.consumoPeriodo * 12 / b.mesiPeriodo; out.annuoStimato = true; }
   if (!annuo) { out.errore = "Inserisci il consumo annuo (o consumo e mesi del periodo) per fare il confronto."; return out; }
@@ -750,7 +852,7 @@ function confronta(b){
   }
   if (prezzoAtt == null) { out.errore = "Inserisci il prezzo energia attuale (o la spesa per la materia e il consumo del periodo)."; return out; }
   const ivaK = 1 + (b.iva ?? defaultIva(b)) / 100;
-  out.annuo = annuo; out.prezzoAtt = prezzoAtt;
+  out.annuo = annuo; out.prezzoAtt = prezzoAtt; out.iva = b.iva ?? defaultIva(b);
   out.vendAtt = prezzoAtt * annuo + qfAtt * 12;
   out.vendAttIvato = out.vendAtt * ivaK;
   if (b.spesaAnnuaStimata) out.totaleAnnuoStimato = b.spesaAnnuaStimata;
@@ -764,12 +866,14 @@ function confronta(b){
     if (b.fornitore && stessoOperatore(o.operatore, b.fornitore)) { out.escluse.stesso.push(o); continue; }
     if (o.segmento !== "entrambi" && o.segmento !== b.segmento) { out.escluse.segmento.push(o); continue; }
     if (o.validaFino && o.validaFino < oggi) { out.escluse.scadute.push(o); continue; }
+    const amm = offertaAmmessa(o, req);
+    if (!amm.ok) { out.escluse.riservate.push(o); continue; }
     const pr = prezzoOfferta(o, b);
     if (pr.err) { out.escluse.incomplete.push(Object.assign({ motivo: pr.err }, o)); continue; }
     const qp = b.tipo === "luce" && toNum(o.quotaPotenzaMese) && b.potenzaImpegnata ? toNum(o.quotaPotenzaMese) * b.potenzaImpegnata * 12 : 0;
     const vend = pr.p * annuo + (toNum(o.quotaFissaMese) || 0) * 12 + qp;
     const risparmio = (out.vendAtt - vend) * ivaK;
-    const row = { o, prezzo: pr.p, notaPrezzo: pr.nota, vend, vendIvato: vend * ivaK, risparmio, perc: out.basePerc ? risparmio / out.basePerc : 0, percVend: out.vendAtt ? (out.vendAtt - vend) / out.vendAtt : 0, qp, comp: compensoPer(o, b, annuo) };
+    const row = { o, prezzo: pr.p, notaPrezzo: pr.nota, vend, vendIvato: vend * ivaK, risparmio, perc: out.basePerc ? risparmio / out.basePerc : 0, percVend: out.vendAtt ? (out.vendAtt - vend) / out.vendAtt : 0, qp, comp: compensoPer(o, b, annuo), dedicata: amm.label || "" };
     if (risparmio >= -tol) out.ok.push(row); else out.escluse.piuCare.push(o);
   }
   out.ok.sort((a, b2) => b2.risparmio - a.risparmio);
@@ -792,12 +896,16 @@ function renderResults(){
   if (ex.piuCare.length) exLines.push(`${ex.piuCare.length} con spesa più alta dell'attuale`);
   if (ex.segmento.length) exLines.push(`${ex.segmento.length} riservate a clienti ${b.segmento === "business" ? "domestici" : "business"}`);
   if (ex.scadute.length) exLines.push(`${ex.scadute.length} scadute`);
+  if (ex.riservate.length) exLines.push(`${ex.riservate.length} riservate a categorie per cui il cliente non risulta idoneo (over 75, L. 104, vulnerabili, settori ATECO)`);
   if (ex.incomplete.length) exLines.push(`${ex.incomplete.length} non calcolabili: ${esc([...new Set(ex.incomplete.map(o => o.motivo))].join("; "))}`);
   el.innerHTML = `<div class="card">
     <div class="seg-banner"><span class="chip ${b.tipo}">${b.tipo === "gas" ? "Gas" : "Luce"}</span><b>Offerte per ${b.segmento === "business" ? "clienti business / P.IVA" : "clienti privati"}</b><span class="chip ${r.ok.length ? "ok" : "warn"}">${r.ok.length} proponibili</span><span class="muted">solo operatori diversi da ${esc(b.fornitore || "quello attuale")}</span></div>
     <div class="headline">
       <div class="kpi"><span>Consumo annuo${r.annuoStimato ? " (stimato)" : ""}</span><b>${num(r.annuo)} ${u}</b></div>
-      <div class="kpi"><span>Prezzo attuale${r.prezzoStimato ? " (stimato)" : ""}</span><b>${num(r.prezzoAtt, 4)} €/${u}</b></div>
+      <div class="kpi"><span>Prezzo ${b.tipo === "gas" ? "gas" : "energia"} attuale${r.prezzoStimato ? " (stimato)" : ""}</span><b>${num(r.prezzoAtt, 4)} €/${u}</b>
+        <small>IVA applicata: <b>${ivaLabel(r.iva)}</b>${b.motivoIva ? " · " + esc(b.motivoIva) : ""}</small>
+        <small>Con IVA: <b>${num(r.prezzoAtt * (1 + r.iva / 100), 4)} €/${u}</b></small>
+        ${r.totaleAnnuoStimato ? `<small>Prezzo totale (tutto incluso): <b>${num(r.totaleAnnuoStimato / r.annuo, 4)} €/${u}</b></small>` : ""}</div>
       <div class="kpi"><span>Costo vendita attuale/anno</span><b>${eur(r.vendAttIvato)}</b></div>
       ${r.totaleAnnuoStimato ? `<div class="kpi"><span>Spesa annua attuale</span><b>${eur(r.totaleAnnuoStimato)}</b></div>` : ""}
       ${r.ok.length ? `<div class="kpi good"><span>Risparmio medio annuo</span><b>${eur(r.medioEur)} · ${num(r.medioPerc * 100, 1)}%</b></div>
@@ -805,15 +913,16 @@ function renderResults(){
     </div>
     ${r.ok.length ? `<div class="toolbar"><label class="toggle" for="chkComm"><input type="checkbox" id="chkComm"${showComm ? " checked" : ""}><span>Mostra compensi agente</span></label>
       <span><label for="selSort" class="muted">Ordina per </label><select id="selSort"><option value="risparmio"${sortBy === "risparmio" ? " selected" : ""}>risparmio cliente</option><option value="compenso"${sortBy === "compenso" ? " selected" : ""}>compenso agente</option></select></span></div>` : ""}
+    ${agevHtml(b, r.annuo)}
     ${r.prezzoStimato ? '<p class="note">Prezzo attuale ricavato dalla spesa per la materia: include anche dispacciamento e altre voci, quindi il risparmio può risultare sovrastimato. Se possibile inserisci il prezzo energia dal dettaglio della bolletta.</p>' : ""}
     <div class="list">
     ${noOffers ? `<div class="empty"><b>Nessuna offerta ${b.tipo} caricata</b><span>Vai su Offerte CTE e carica le condizioni degli operatori.</span><button class="btn small" type="button" data-go="offerte">Carica CTE</button></div>` :
       !r.ok.length ? `<div class="empty"><b>Nessuna offerta di altri operatori con spesa uguale o minore</b><span>Carica altre CTE o verifica i dati della bolletta.</span></div>` :
       r.ok.map((x, i) => `<div class="offer${i === 0 && x.risparmio > 0 ? " best" : ""}">
         <div class="who"><b>${esc(x.o.operatore)}</b><span>${esc(x.o.nomeOfferta || "")}</span>
-          <div class="chips"><span class="chip">${x.o.prezzoTipo === "variabile" ? "Variabile" : "Fisso"}</span>${x.o.durataMesi ? `<span class="chip">${esc(x.o.durataMesi)} mesi</span>` : ""}${i === 0 && x.risparmio > 0 ? '<span class="chip ok">Migliore</span>' : ""}</div></div>
+          <div class="chips"><span class="chip">${x.o.prezzoTipo === "variabile" ? "Variabile" : "Fisso"}</span>${x.o.durataMesi ? `<span class="chip">${esc(x.o.durataMesi)} mesi</span>` : ""}${i === 0 && x.risparmio > 0 ? '<span class="chip ok">Migliore</span>' : ""}${x.dedicata ? `<span class="chip warn">${esc(x.dedicata)}</span>` : ""}</div></div>
         <div class="save"><span class="muted">Risparmio medio annuo</span><span class="meter${x.risparmio <= 0.5 ? " zero" : ""}">${x.risparmio <= 0.5 ? "≈ stessa spesa" : eur(x.risparmio)}</span>${x.risparmio > 0.5 ? `<span class="pct">−${num(x.perc * 100, 1)}%</span><span class="muted">${r.basePercLabel}${r.basePercLabel !== "sul costo vendita" ? " · −" + num(x.percVend * 100, 1) + "% sul costo vendita" : ""}</span>` : ""}</div>
-        <div class="det"><span>Prezzo <b>${num(x.prezzo, 4)} €/${u}</b>${x.notaPrezzo ? " (" + esc(x.notaPrezzo) + ")" : ""}</span><span>Quota fissa <b>${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese</b></span>${x.qp ? `<span>Quota potenza <b>${eur(x.qp, 0)}/anno</b></span>` : ""}<span>Costo vendita <b>${eur(x.vendIvato)}/anno</b></span>${x.o.validaFino ? `<span>Valida fino al <b>${esc(new Date(x.o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${x.o.note ? `<span>${esc(x.o.note)}</span>` : ""}</div>
+        <div class="det"><span>Prezzo <b>${num(x.prezzo, 4)} €/${u}</b>${x.notaPrezzo ? " (" + esc(x.notaPrezzo) + ")" : ""} · con IVA <b>${num(x.prezzo * (1 + r.iva / 100), 4)} €/${u}</b></span><span>Quota fissa <b>${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese</b></span>${x.qp ? `<span>Quota potenza <b>${eur(x.qp, 0)}/anno</b></span>` : ""}<span>Costo vendita <b>${eur(x.vendIvato)}/anno</b></span>${x.o.validaFino ? `<span>Valida fino al <b>${esc(new Date(x.o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${x.o.note ? `<span>${esc(x.o.note)}</span>` : ""}</div>
         ${showComm ? (x.comp ? `<div class="comm"><span>Compenso agente stimato <b>${eur(x.comp.totale)}</b></span>${x.comp.fisso ? `<span>gettone <b>${eur(x.comp.fisso)}</b></span>` : ""}${x.comp.variabile ? `<span>variabile <b>${eur(x.comp.variabile)}</b></span>` : ""}${x.comp.ricorrente ? `<span>ricorrente <b>${eur(x.comp.ricorrente)}/anno</b></span>` : ""}${x.comp.note ? `<span>${esc(x.comp.note)}</span>` : ""}</div>` : `<div class="comm muted">Nessuna tabella compensi per ${esc(x.o.operatore)}</div>`) : ""}
       </div>`).join("")}
     </div>
@@ -827,11 +936,17 @@ function renderResults(){
   const cb = $("#btnCopy");
   if (cb) cb.onclick = async () => { const ta = $("#summaryText"); try { await navigator.clipboard.writeText(ta.value); $("#copyMsg").textContent = "Copiato"; } catch { ta.focus(); ta.select(); $("#copyMsg").textContent = "Testo selezionato: copia con Ctrl+C o tieni premuto"; } };
 }
+function agevHtml(b, annuo){
+  const a = analizzaAgevolazioni(b, annuo); if (!a.items.length) return "";
+  const chip = { si: '<span class="chip ok">Possibile</span>', attenzione: '<span class="chip warn">Da verificare</span>', info: '<span class="chip">Info</span>' };
+  return `<details class="more" open><summary>Agevolazioni potenziali (${a.items.filter(x => x.stato !== "info").length})</summary><div class="agev">${a.items.map(x => `<div class="it">${chip[x.stato]}<b>${x.titolo}</b><p>${x.testo}</p></div>`).join("")}</div>
+    <p class="note">Indicazioni da verificare con il cliente e con la normativa in vigore: non sostituiscono la verifica dei requisiti.</p></details>`;
+}
 function riepilogo(b, r){
   const u = unit(b.tipo);
   let s = `Analisi fornitura ${b.tipo === "gas" ? "GAS" : "LUCE"} ${b.segmento === "business" ? "business" : "domestica"}${b.intestatario ? " – " + b.intestatario : ""}\n`;
   s += `Fornitore attuale: ${b.fornitore || "n.d."}${b.nomeOfferta ? " (" + b.nomeOfferta + ")" : ""}\n`;
-  s += `Consumo annuo: ${num(r.annuo)} ${u} · prezzo attuale ${num(r.prezzoAtt, 4)} €/${u}\n\nAlternative con cambio operatore:\n`;
+  s += `Consumo annuo: ${num(r.annuo)} ${u} · prezzo attuale ${num(r.prezzoAtt, 4)} €/${u} (IVA ${ivaLabel(r.iva)}, con IVA ${num(r.prezzoAtt * (1 + r.iva / 100), 4)} €/${u})\n\nAlternative con cambio operatore:\n`;
   r.ok.slice(0, 5).forEach((x, i) => {
     s += `${i + 1}. ${x.o.operatore} – ${x.o.nomeOfferta || ""}: ${num(x.prezzo, 4)} €/${u}, quota fissa ${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese → ${x.risparmio > 0.5 ? "risparmio stimato " + eur(x.risparmio) + "/anno IVA inclusa (−" + num(x.perc * 100, 1) + "% " + r.basePercLabel + ")" : "spesa equivalente"}\n`;
   });
@@ -873,7 +988,8 @@ function normalizeOffer(o, fonte, via){
     prezzo: toNum(o.prezzo), prezzoF1: toNum(o.prezzoF1), prezzoF2: toNum(o.prezzoF2), prezzoF3: toNum(o.prezzoF3),
     indice: o.indice || (o.prezzoTipo === "variabile" ? (tipo === "gas" ? "PSV" : "PUN") : ""), spread: toNum(o.spread),
     quotaFissaMese: toNum(o.quotaFissaMese), quotaPotenzaMese: toNum(o.quotaPotenzaMese),
-    durataMesi: toNum(o.durataMesi), validaFino: o.validaFino || "", note: o.note || ""
+    durataMesi: toNum(o.durataMesi), validaFino: o.validaFino || "", note: o.note || "",
+    riservataA: ["over75","disabili","vulnerabili","ateco"].includes(o.riservataA) ? o.riservataA : "", atecoAmmessi: o.atecoAmmessi || ""
   };
 }
 function offerForm(o, idx){
@@ -890,6 +1006,8 @@ function offerForm(o, idx){
     ${f("quotaFissaMese", "Quota fissa €/mese")}
     ${o.tipo === "luce" ? f("quotaPotenzaMese", "Quota potenza vendita €/kW/mese") : ""}
     ${f("durataMesi", "Durata condizioni (mesi)")}${f("validaFino", "Sottoscrivibile fino al", "date")}
+    ${sel("riservataA", "Riservata a", [["","Tutti i clienti"],["over75","Over 75"],["disabili","Disabili / L. 104"],["vulnerabili","Clienti vulnerabili"],["ateco","Settori ATECO specifici"]])}
+    ${o.riservataA === "ateco" ? f("atecoAmmessi", "Codici ATECO ammessi (prefissi)", "text") : ""}
     <div class="field wide"><label for="${p}-note">Note</label><input id="${p}-note" data-k="note" type="text" value="${esc(o.note)}"></div>
   </div>`;
 }
@@ -940,7 +1058,7 @@ function renderOffers(){
   el.innerHTML = list.map(o => { const u = unit(o.tipo); const scad = o.validaFino && o.validaFino < oggi;
     return `<div class="offer">
       <div class="who"><b>${esc(o.operatore)}</b><span>${esc(o.nomeOfferta)}</span>
-        <div class="chips"><span class="chip ${o.tipo}">${o.tipo}</span><span class="chip">${o.segmento === "entrambi" ? "Dom. + business" : o.segmento}</span><span class="chip">${o.prezzoTipo}</span>${scad ? '<span class="chip bad">Scaduta</span>' : ""}</div></div>
+        <div class="chips"><span class="chip ${o.tipo}">${o.tipo}</span><span class="chip">${o.segmento === "entrambi" ? "Dom. + business" : o.segmento}</span><span class="chip">${o.prezzoTipo}</span>${o.riservataA ? `<span class="chip warn">${{over75:"Over 75",disabili:"L. 104",vulnerabili:"Vulnerabili",ateco:"ATECO " + esc(o.atecoAmmessi)}[o.riservataA]}</span>` : ""}${scad ? '<span class="chip bad">Scaduta</span>' : ""}</div></div>
       <div class="save"><span class="meter">${o.prezzoTipo === "variabile" ? esc(o.indice || "") + " + " + num(toNum(o.spread) || 0, 4) : num(toNum(o.prezzo) ?? avgF(o), 4)} €/${u}</span><span class="muted">+ ${eur(toNum(o.quotaFissaMese) || 0, 2)}/mese</span></div>
       <div class="det">${o.validaFino ? `<span>Fino al <b>${esc(new Date(o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${o.fonte ? `<span>${esc(o.fonte)}</span>` : ""}
         <span class="btns">${canWrite ? `<button class="btn small" data-edit="${esc(o.id)}" type="button">Modifica</button><button class="btn small danger" data-del="${esc(o.id)}" type="button">Elimina</button>` : ""}</span></div>
@@ -1112,6 +1230,7 @@ const DEMO_OFFERS = [
   { id: "d1", operatore: "Operatore Alfa", nomeOfferta: "Casa Fissa 12 (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.1190, quotaFissaMese: 9, durataMesi: 12 },
   { id: "d2", operatore: "Operatore Beta", nomeOfferta: "Luce Indicizzata (esempio)", tipo: "luce", segmento: "entrambi", prezzoTipo: "variabile", indice: "PUN", spread: 0.012, quotaFissaMese: 7.5 },
   { id: "d3", operatore: "Enel Energia", nomeOfferta: "Offerta stesso operatore (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.10, quotaFissaMese: 6 },
+  { id: "d5", operatore: "Operatore Delta", nomeOfferta: "Senior 75+ (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.112, quotaFissaMese: 6, riservataA: "over75" },
   { id: "d4", operatore: "Operatore Gamma", nomeOfferta: "Prezzo Alto (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.17, quotaFissaMese: 12 },
 ];
 const DEMO_COMM = [
@@ -1122,7 +1241,7 @@ $("#btnDemo").onclick = () => {
   demoMode = true; $("#billIntro").hidden = true; setStatus($("#billStatus"), "", "");
   if (settings.pun == null) settings.pun = 0.115;
   currentBill = normalizeBill({ tipo: "luce", segmento: "domestico", motivoSegmento: "tipologia 'uso domestico', IVA 10%", certezzaSegmento: "alta", fornitore: "Enel Energia S.p.A.", nomeOfferta: "Offerta di esempio",
-    intestatario: "Mario Rossi (esempio)", codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
+    intestatario: "Mario Rossi (esempio)", codiceFiscaleCliente: "RSSMRA48C12H501X", motivoIva: "IVA 10% uso domestico", codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
   renderReview(); renderResults();
 };
 

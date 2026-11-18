@@ -11,6 +11,9 @@ Web-app (PC e smartphone) per consulenti energia:
 - **Risparmio medio annuo in %** per ogni offerta e come media delle alternative proponibili.
 - **Compensi agente** (opzionale): tabelle provvigionali da PDF/foto/Excel/CSV trasformate in regole (gettone, €/MWh o €/1000 Smc, ricorrente, fasce di consumo). Visibili solo all'agente, mai nel riepilogo per il cliente.
 
+- **IVA e prezzo finale**: sotto il prezzo attuale l'IVA applicata (esente, 10%, 22%), il prezzo con IVA e il prezzo totale tutto incluso.
+- **Agevolazioni potenziali**: età dal codice fiscale (over 75), profilo del cliente (L. 104, salvavita, ISEE, isole minori), clienti vulnerabili; per le aziende dal codice ATECO: IVA al 10%, energivori/gasivori, accisa gas per usi industriali, esenzione IVA. Le offerte possono essere riservate a over 75, disabili, vulnerabili o settori ATECO.
+
 ## Calcolo
 Si confrontano le voci decise dal venditore: `prezzo × consumo annuo + quota fissa × 12` (+ eventuale quota potenza dell'offerta), IVA inclusa. Trasporto, oneri di sistema e accise sono regolati e uguali per tutti, quindi non cambiano il risparmio. Le offerte variabili usano PUN/PSV impostati in *Impostazioni*.
 
