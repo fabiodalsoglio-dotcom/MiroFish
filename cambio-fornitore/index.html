@@ -504,7 +504,27 @@ Estrai i dati dalla bolletta qui sotto (testo estratto da PDF e/o immagini alleg
  "iva": number | null,                           // aliquota IVA % applicata: 10 o 22; 0 se esente o non imponibile (es. esportatore abituale, art. 8)
  "motivoIva": string | null,                     // dicitura IVA in bolletta (es. "IVA 10% uso domestico", "non imponibile art. 8 c.1 lett. c")
  "codiceAteco": string | null,                   // codice ATECO dell'attività se indicato
- "bonusSociale": boolean | null                  // true se in bolletta è applicato un bonus sociale
+ "bonusSociale": boolean | null,                 // true se in bolletta è applicato un bonus sociale
+ "datiContratto": {                              // dati utili per compilare il contratto di cambio fornitore (null se assenti)
+   "codiceCliente": string | null,               // codice cliente / numero cliente presso il fornitore attuale
+   "numeroContratto": string | null,
+   "indirizzoFatturazione": string | null,
+   "comuneFornitura": string | null, "capFornitura": string | null, "provinciaFornitura": string | null,
+   "residente": "sì" | "no" | null,              // luce domestica: residente nell'abitazione
+   "distributore": string | null,                // es. e-distribuzione, Areti, Italgas, 2i Rete Gas
+   "tensione": string | null,                    // luce: tensione di alimentazione con fase, es. "230 V monofase", "400 V trifase" (220 = 230 V, 380 = 400 V)
+   "potenzaDisponibile": number | null,          // luce: kW
+   "opzioneTariffaria": string | null,           // luce: es. TD, BTA1...BTA6, MTA
+   "tipoMisuratore": string | null,              // luce: orario/fasce, monorario; gas: tipo contatore
+   "matricolaContatore": string | null,
+   "codiceRemi": string | null,                  // gas: codice REMI della cabina
+   "classeContatore": string | null,             // gas: es. G4, G6, G10
+   "categoriaUso": string | null,                // gas: es. C1, C2, C3, T1, T2
+   "classePrelievo": string | null,              // gas: 1, 2 o 3 (giorni di prelievo settimanali)
+   "dataAttivazione": "YYYY-MM-DD" | null,       // inizio fornitura col fornitore attuale
+   "modalitaPagamento": string | null,           // es. domiciliazione bancaria, bollettino (NON riportare l'IBAN)
+   "pec": string | null, "codiceSdi": string | null    // business: PEC e codice destinatario fatturazione elettronica
+ }
 }
 Numeri con il punto come separatore decimale, nessun simbolo. Se un dato non è presente metti null: non inventare.`;
 
@@ -594,8 +614,16 @@ function heuristicBill(text){
     mesi = Math.max(1, Math.round((new Date(al) - new Date(dal)) / 2.63e9)); }
   const consPer = itNum(rx(t, new RegExp("(?:consumo|energia)\\s+(?:fatturat[oa]|del\\s+periodo|rilevat[oa])[^\\d]{0,40}" + N + "\\s*" + u, "i")));
   const iva = /iva\s*(?:al\s*)?22\s*%/i.test(t) ? 22 : /iva\s*(?:al\s*)?10\s*%/i.test(t) ? 10 : null;
+  const remi = rx(t, /REMI[^0-9]{0,20}(\d{6,10})/i);
+  const tens = rx(t, /tensione[^\d]{0,30}(\d{3})\s*V/i) || rx(t, /\b(220|230|380|400)\s*V\b/);
+  const matr = rx(t, /matricola(?:\s+(?:del\s+)?(?:contatore|misuratore))?[^A-Z0-9]{0,20}([A-Z0-9]*\d[A-Z0-9]{4,19})/i);
+  const distr = DISTRIBUTORI.find(x => t.toLowerCase().includes(x));
+  const datiContratto = { codiceRemi: remi, tensione: tens ? ({ "220": "230 V monofase", "230": "230 V monofase", "380": "400 V trifase", "400": "400 V trifase" }[tens] || tens + " V") : null,
+    matricolaContatore: matr, distributore: distr ? distr.replace(/\b\w/g, c => c.toUpperCase()) : null,
+    classeContatore: rx(t, /\b(G\s?(?:4|6|10|16|25|40|65|100))\b/), categoriaUso: rx(t, /categoria\s+d.uso[^A-Z0-9]{0,10}([CT]\d)/i),
+    codiceCliente: rx(t, /(?:codice|numero)\s+cliente[^A-Z0-9]{0,10}([A-Z0-9]{4,20})/i), codiceSdi: rx(t, /codice\s+(?:destinatario|sdi)[^A-Z0-9]{0,10}([A-Z0-9]{7})/i) };
   const ivaTxt = /iva\s*(?:al\s*)?22\s*%/i.test(t) ? 22 : /iva\s*(?:al\s*)?10\s*%/i.test(t) ? 10 : null;
-  return { tipo, fornitore: trovaOperatore(t.split(/distribu/i)[0] || t) || trovaOperatore(t),
+  return { tipo, datiContratto, fornitore: trovaOperatore(t.split(/distribu/i)[0] || t) || trovaOperatore(t),
     codicePunto: pod || pdr, consumoAnnuo: annuo, totaleBolletta: totale, spesaMateriaPeriodo: materia, potenzaImpegnata: potenza,
     periodoDal: dal, periodoAl: al, mesiPeriodo: mesi, consumoPeriodo: consPer, iva };
 }
@@ -664,6 +692,7 @@ function normalizeBill(d, nomeFile, via){
     spesaAnnuaStimata: toNum(d.spesaAnnuaStimata),
     codiceFiscaleCliente: d.codiceFiscaleCliente || "", partitaIvaCliente: d.partitaIvaCliente || "", codiceAteco: d.codiceAteco || "",
     motivoIva: d.motivoIva || "", bonusSociale: !!d.bonusSociale, profilo: d.profilo || {},
+    contratto: Object.assign({}, d.datiContratto || {}),
     fornitore: d.fornitore || "", nomeOfferta: d.nomeOfferta || "", intestatario: d.intestatario || "",
     codicePunto: d.codicePunto || "", indirizzoFornitura: d.indirizzoFornitura || "",
     periodoDal: d.periodoDal || "", periodoAl: d.periodoAl || "",
@@ -731,10 +760,47 @@ function renderReview(){
       ${[["l104","Disabilità grave (L. 104 art. 3)"],["salvavita","Apparecchiature elettromedicali salvavita"],["isee","ISEE sotto soglia bonus sociale"],["isole","Residente in isola minore non interconnessa"],["emergenza","Abitazione di emergenza (calamità)"]].map(([k, t]) => `<label class="toggle" for="pf-${k}"><input type="checkbox" id="pf-${k}" data-pf="${k}"${b.profilo[k] ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div></div>` : ""}
     <div class="btns"><button class="btn primary" id="btnRecalc" type="button">Aggiorna confronto</button></div>
-  </div>`;
+  </div>
+  ${contrattoHtml(b)}`;
   el.querySelectorAll("[data-k]").forEach(inp => inp.addEventListener("change", () => { readReview(); if (inp.dataset.k === "segmento") currentBill.segmentoManuale = true; if (inp.dataset.k === "tipo" || inp.dataset.k === "segmento") { currentBill.iva = defaultIva(currentBill); renderReview(); } renderResults(); }));
   $("#btnRecalc").onclick = () => { readReview(); renderReview(); renderResults(); };
+  el.querySelectorAll("[data-ck]").forEach(inp => inp.addEventListener("change", () => { setCk(inp.dataset.ck, inp.value); }));
+  const cc = $("#btnCopyContr");
+  if (cc) cc.onclick = async () => { const txt = contrattoTesto(currentBill); try { await navigator.clipboard.writeText(txt); $("#contrMsg").textContent = "Copiato"; } catch { const ta = $("#contrText"); ta.hidden = false; ta.value = txt; ta.focus(); ta.select(); $("#contrMsg").textContent = "Testo selezionato: copia con Ctrl+C o tieni premuto"; } };
   el.querySelectorAll("[data-pf]").forEach(c => c.onchange = () => { currentBill.profilo[c.dataset.pf] = c.checked; renderResults(); });
+}
+const CONTR = [
+  // [chiave, etichetta, solo tipo, solo segmento]  chiavi "c." = dati contratto, le altre sono campi della bolletta
+  ["intestatario", "Intestatario"], ["codiceFiscaleCliente", "Codice fiscale"], ["partitaIvaCliente", "Partita IVA", null, "business"],
+  ["codicePunto", "Codice POD", "luce"], ["codicePunto", "Codice PDR", "gas"],
+  ["indirizzoFornitura", "Indirizzo di fornitura"], ["c.comuneFornitura", "Comune"], ["c.capFornitura", "CAP"], ["c.provinciaFornitura", "Provincia"],
+  ["c.indirizzoFatturazione", "Indirizzo di fatturazione"],
+  ["c.residente", "Residente", "luce", "domestico"],
+  ["c.tensione", "Tensione di alimentazione", "luce"], ["potenzaImpegnata", "Potenza impegnata kW", "luce"], ["c.potenzaDisponibile", "Potenza disponibile kW", "luce"],
+  ["c.opzioneTariffaria", "Opzione tariffaria", "luce"], ["c.tipoMisuratore", "Tipo misuratore"],
+  ["c.codiceRemi", "Codice REMI (cabina)", "gas"], ["c.classeContatore", "Classe contatore", "gas"], ["c.categoriaUso", "Categoria d'uso", "gas"], ["c.classePrelievo", "Classe di prelievo", "gas"],
+  ["c.matricolaContatore", "Matricola contatore"], ["c.distributore", "Distributore"],
+  ["consumoAnnuo", "Consumo annuo"], ["fornitore", "Fornitore attuale"], ["nomeOfferta", "Offerta attuale"],
+  ["c.codiceCliente", "Codice cliente attuale"], ["c.numeroContratto", "Numero contratto attuale"], ["c.dataAttivazione", "Attivo dal"],
+  ["c.modalitaPagamento", "Modalità di pagamento"], ["codiceAteco", "Codice ATECO", null, "business"],
+  ["c.pec", "PEC", null, "business"], ["c.codiceSdi", "Codice SDI", null, "business"],
+];
+function getCk(b, k){ return k.startsWith("c.") ? (b.contratto || {})[k.slice(2)] : b[k]; }
+function setCk(k, v){ if (k.startsWith("c.")) { currentBill.contratto = currentBill.contratto || {}; currentBill.contratto[k.slice(2)] = v; } else currentBill[k] = typeof currentBill[k] === "number" || currentBill[k] === null && /consumo|potenza/.test(k) ? toNum(v) : v; }
+const contrVisibili = b => CONTR.filter(([k, , t, sg]) => (!t || t === b.tipo) && (!sg || sg === b.segmento));
+function contrattoTesto(b){
+  return `Dati fornitura ${b.tipo === "gas" ? "GAS" : "LUCE"} ${b.segmento === "business" ? "business" : "domestica"}\n` +
+    contrVisibili(b).map(([k, l]) => { const v = getCk(b, k); return v == null || v === "" ? null : `${l}: ${k === "consumoAnnuo" ? num(v) + " " + unit(b.tipo) : v}`; }).filter(Boolean).join("\n");
+}
+function contrattoHtml(b){
+  const list = contrVisibili(b);
+  const pieni = list.filter(([k]) => { const v = getCk(b, k); return v != null && v !== ""; }).length;
+  return `<details class="card more" id="contrCard"${pieni ? " open" : ""}><summary>Dati per la compilazione del contratto (${pieni}/${list.length} trovati)</summary>
+    <div class="grid">${list.map(([k, l], i) => { const v = getCk(b, k); return `<div class="field${v == null || v === "" ? " missing" : ""}"><label for="ck-${i}">${esc(l)}</label><input id="ck-${i}" data-ck="${k}" type="text" value="${esc(v ?? "")}"></div>`; }).join("")}</div>
+    <div class="btns"><button class="btn" id="btnCopyContr" type="button">Copia tutti i dati</button><span class="muted" id="contrMsg"></span></div>
+    <textarea class="copy" id="contrText" readonly hidden></textarea>
+    <p class="note">I campi in arancione non sono stati trovati in bolletta: completali a mano se servono. L'IBAN non viene letto: chiedilo al cliente.</p>
+  </details>`;
 }
 function readReview(){
   $("#billReview").querySelectorAll("[data-k]").forEach(inp => {
@@ -1241,7 +1307,8 @@ $("#btnDemo").onclick = () => {
   demoMode = true; $("#billIntro").hidden = true; setStatus($("#billStatus"), "", "");
   if (settings.pun == null) settings.pun = 0.115;
   currentBill = normalizeBill({ tipo: "luce", segmento: "domestico", motivoSegmento: "tipologia 'uso domestico', IVA 10%", certezzaSegmento: "alta", fornitore: "Enel Energia S.p.A.", nomeOfferta: "Offerta di esempio",
-    intestatario: "Mario Rossi (esempio)", codiceFiscaleCliente: "RSSMRA48C12H501X", motivoIva: "IVA 10% uso domestico", codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
+    intestatario: "Mario Rossi (esempio)", codiceFiscaleCliente: "RSSMRA48C12H501X", motivoIva: "IVA 10% uso domestico", indirizzoFornitura: "Via Roma 1 (esempio)",
+    datiContratto: { comuneFornitura: "Roma", capFornitura: "00100", provinciaFornitura: "RM", residente: "sì", distributore: "Areti", tensione: "230 V monofase", potenzaDisponibile: 3.3, opzioneTariffaria: "TD", tipoMisuratore: "orario (fasce)", modalitaPagamento: "domiciliazione bancaria" }, codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
   renderReview(); renderResults();
 };
 

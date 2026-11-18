@@ -14,6 +14,8 @@ Web-app (PC e smartphone) per consulenti energia:
 - **IVA e prezzo finale**: sotto il prezzo attuale l'IVA applicata (esente, 10%, 22%), il prezzo con IVA e il prezzo totale tutto incluso.
 - **Agevolazioni potenziali**: età dal codice fiscale (over 75), profilo del cliente (L. 104, salvavita, ISEE, isole minori), clienti vulnerabili; per le aziende dal codice ATECO: IVA al 10%, energivori/gasivori, accisa gas per usi industriali, esenzione IVA. Le offerte possono essere riservate a over 75, disabili, vulnerabili o settori ATECO.
 
+- **Dati per la compilazione del contratto**: POD/PDR, codice REMI, tensione (230 V monofase / 400 V trifase), potenza impegnata e disponibile, opzione tariffaria, matricola e classe contatore, categoria d'uso e classe di prelievo, distributore, codice cliente, indirizzi, PEC e SDI. Modificabili e copiabili con un clic (l'IBAN non viene letto).
+
 ## Calcolo
 Si confrontano le voci decise dal venditore: `prezzo × consumo annuo + quota fissa × 12` (+ eventuale quota potenza dell'offerta), IVA inclusa. Trasporto, oneri di sistema e accise sono regolati e uguali per tutti, quindi non cambiano il risparmio. Le offerte variabili usano PUN/PSV impostati in *Impostazioni*.
 
