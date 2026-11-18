@@ -1,0 +1,902 @@
+<title>Cambio Fornitore</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap">
+<style>
+/* Layout: colonna unica da strumento di lavoro (max 880px), schede in alto, contatore-display per le cifre */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface-2:#eaeef3; --line:#d5dce5;
+  --fg:#16202c; --muted:#5a6878; --accent:#1d5fd1; --accent-fg:#ffffff;
+  --luce:#c98400; --luce-bg:#fff3d6; --gas:#1b74c9; --gas-bg:#e0eefb;
+  --ok:#137a4a; --ok-bg:#dcf3e7; --warn:#a65b00; --warn-bg:#fdebd3; --bad:#b3261e; --bad-bg:#fbe1df;
+  --display:"Manrope",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#171e27; --surface-2:#1f2833; --line:#2c3743;
+  --fg:#e6ebf1; --muted:#97a4b3; --accent:#6c9cff; --accent-fg:#0b1220;
+  --luce:#f2b33d; --luce-bg:#3a2c0e; --gas:#5aa8f0; --gas-bg:#12283d;
+  --ok:#4fcf8f; --ok-bg:#12301f; --warn:#f0a050; --warn-bg:#3a2510; --bad:#ff8a80; --bad-bg:#3d1714;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#171e27; --surface-2:#1f2833; --line:#2c3743;
+  --fg:#e6ebf1; --muted:#97a4b3; --accent:#6c9cff; --accent-fg:#0b1220;
+  --luce:#f2b33d; --luce-bg:#3a2c0e; --gas:#5aa8f0; --gas-bg:#12283d;
+  --ok:#4fcf8f; --ok-bg:#12301f; --warn:#f0a050; --warn-bg:#3a2510; --bad:#ff8a80; --bad-bg:#3d1714;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 48px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:880px;margin:0 auto}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:14px 10px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand h1{font-family:var(--display);font-weight:800;font-size:1.35rem;margin:0;letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:.85rem}
+.tabs{display:flex;gap:6px;overflow-x:auto}
+.tab{font:600 .9rem var(--body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:8px 14px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tab .count{font-family:var(--mono);font-size:.78rem;opacity:.75;margin-left:4px}
+main{display:flex;flex-direction:column;gap:18px;padding-top:18px}
+section.panel{display:flex;flex-direction:column;gap:16px}
+h2{font-family:var(--display);font-weight:700;font-size:1.15rem;margin:0;text-wrap:balance}
+h3{font-family:var(--display);font-weight:700;font-size:1rem;margin:0}
+p{margin:0}
+.muted{color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.drop{border:2px dashed var(--line);border-radius:var(--r);background:var(--surface);padding:22px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.drop.over{border-color:var(--accent);background:var(--surface-2)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{font:600 .92rem var(--body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:9px 14px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.small{padding:5px 10px;font-size:.82rem}
+.btn:disabled{opacity:.5;cursor:default}
+.btn:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.status{font-size:.9rem;padding:10px 12px;border-radius:8px;background:var(--surface-2);display:flex;gap:10px;align-items:center}
+.status.err{background:var(--bad-bg);color:var(--bad)}
+.status.ok{background:var(--ok-bg);color:var(--ok)}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:600 .75rem var(--body);letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;border-radius:999px;background:var(--surface-2);color:var(--fg)}
+.chip.luce{background:var(--luce-bg);color:var(--luce)}
+.chip.gas{background:var(--gas-bg);color:var(--gas)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px 12px}
+.field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.field label{font-size:.74rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.field input,.field select,.field textarea{font:400 .95rem var(--body);padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);width:100%;min-width:0}
+.field input[type=number]{font-family:var(--mono)}
+.field.wide{grid-column:1/-1}
+.field .hint{font-size:.75rem;color:var(--muted)}
+.field.missing input{border-color:var(--warn)}
+details.more summary{cursor:pointer;font-weight:600;font-size:.9rem;color:var(--accent)}
+details.more[open] summary{margin-bottom:10px}
+.meter{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600}
+.headline{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.kpi{background:var(--surface-2);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi span{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.kpi b{font-family:var(--mono);font-size:1.15rem;font-variant-numeric:tabular-nums}
+.offer{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:14px;display:grid;grid-template-columns:1fr auto;gap:6px 14px;align-items:start}
+.offer.best{border-color:var(--ok);box-shadow:0 0 0 1px var(--ok) inset}
+.offer .who{min-width:0;display:flex;flex-direction:column;gap:3px}
+.offer .who b{font-family:var(--display);font-size:1rem}
+.offer .save{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.offer .save .meter{font-size:1.2rem;color:var(--ok)}
+.offer .save .meter.zero{color:var(--muted)}
+.offer .det{grid-column:1/-1;font-size:.85rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 16px}
+.offer .det span b{color:var(--fg);font-family:var(--mono);font-weight:500}
+.list{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.empty{text-align:center;padding:26px 12px;color:var(--muted);display:flex;flex-direction:column;gap:8px;align-items:center}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;counter-reset:s}
+.steps div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:.9rem;display:flex;flex-direction:column;gap:4px}
+.steps div b{font-family:var(--display)}
+.note{font-size:.82rem;color:var(--muted);border-left:3px solid var(--line);padding-left:10px}
+.excl{font-size:.85rem;color:var(--muted)}
+.excl ul{margin:6px 0 0;padding-left:18px}
+.demo-flag{background:var(--warn-bg);color:var(--warn);font-weight:600;font-size:.85rem;padding:8px 12px;border-radius:8px}
+textarea.copy{width:100%;min-height:160px;font:400 .85rem var(--mono);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:10px}
+.toggle{display:flex;gap:10px;align-items:flex-start;font-size:.92rem}
+.toggle input{margin-top:4px;width:18px;height:18px;flex:none}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+@media (max-width:520px){
+  .offer{grid-template-columns:1fr}
+  .offer .save{align-items:flex-start;text-align:left}
+  .grid{grid-template-columns:1fr 1fr}
+}
+@media (max-width:360px){.grid{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="brand"><h1>Cambio Fornitore</h1><small>Luce e gas · privati e aziende · solo offerte di altri operatori</small></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-bolletta" aria-selected="true" data-tab="bolletta">Analizza bolletta</button>
+    <button class="tab" role="tab" id="tab-offerte" aria-selected="false" data-tab="offerte">Offerte CTE<span class="count" id="offerCount">0</span></button>
+    <button class="tab" role="tab" id="tab-impostazioni" aria-selected="false" data-tab="impostazioni">Impostazioni</button>
+  </nav>
+</header>
+
+<main>
+<!-- ===================== BOLLETTA ===================== -->
+<section class="panel" id="panel-bolletta">
+  <div class="drop" id="dropBill">
+    <h2>Carica la bolletta del cliente</h2>
+    <p class="muted">PDF o foto. Riconosco luce/gas, uso domestico/aziendale, fornitore e consumi.</p>
+    <div class="btns">
+      <label class="btn primary" for="billFile">Scegli file</label>
+      <label class="btn" for="billCam">Scatta foto</label>
+    </div>
+    <input type="file" id="billFile" accept="application/pdf,image/*" hidden>
+    <input type="file" id="billCam" accept="image/*" capture="environment" hidden>
+    <button class="btn small" id="btnDemo" type="button">Vedi un esempio</button>
+  </div>
+  <div id="billStatus" hidden></div>
+
+  <div id="billIntro" class="steps">
+    <div><b>1 · Carica le CTE</b><span class="muted">Nella scheda Offerte CTE inserisci le condizioni economiche degli operatori. Restano salvate e le vedi da PC e telefono.</span></div>
+    <div><b>2 · Carica la bolletta</b><span class="muted">Leggo i dati e te li mostro: correggi quelli sbagliati prima del confronto.</span></div>
+    <div><b>3 · Proponi il cambio</b><span class="muted">Vedi solo offerte di operatori diversi dall'attuale, con spesa uguale o minore.</span></div>
+  </div>
+
+  <div id="billReview" hidden></div>
+  <div id="billResults" hidden></div>
+</section>
+
+<!-- ===================== OFFERTE ===================== -->
+<section class="panel" id="panel-offerte" hidden>
+  <div class="drop" id="dropCte">
+    <h2>Carica le CTE degli operatori</h2>
+    <p class="muted">Uno o più PDF (o foto) delle Condizioni Tecnico Economiche. Estraggo prezzi e quote, tu controlli e salvi.</p>
+    <div class="btns">
+      <label class="btn primary" for="cteFile">Scegli CTE</label>
+      <button class="btn" type="button" id="btnAddManual">Inserisci a mano</button>
+    </div>
+    <input type="file" id="cteFile" accept="application/pdf,image/*" multiple hidden>
+  </div>
+  <div id="cteStatus" hidden></div>
+  <div id="cteDrafts" class="list"></div>
+  <div class="card">
+    <div class="row"><h2>Offerte salvate</h2><span class="muted" id="storeMode"></span></div>
+    <div class="filters" id="offerFilters">
+      <button class="btn small" data-f="tutte" aria-pressed="true">Tutte</button>
+      <button class="btn small" data-f="luce" aria-pressed="false">Luce</button>
+      <button class="btn small" data-f="gas" aria-pressed="false">Gas</button>
+      <button class="btn small" data-f="domestico" aria-pressed="false">Domestico</button>
+      <button class="btn small" data-f="business" aria-pressed="false">Business</button>
+    </div>
+    <div id="offerList" class="list"></div>
+  </div>
+</section>
+
+<!-- ===================== IMPOSTAZIONI ===================== -->
+<section class="panel" id="panel-impostazioni" hidden>
+  <div class="card">
+    <h2>Indici per le offerte a prezzo variabile</h2>
+    <p class="muted">Le offerte indicizzate si calcolano come indice + spread. Aggiorna i valori quando cambiano (es. media ultimi 12 mesi o previsione).</p>
+    <div class="grid">
+      <div class="field"><label for="setPun">PUN €/kWh</label><input type="number" step="0.00001" id="setPun"></div>
+      <div class="field"><label for="setPsv">PSV €/Smc</label><input type="number" step="0.00001" id="setPsv"></div>
+      <div class="field"><label for="setIdxDate">Valori aggiornati al</label><input type="date" id="setIdxDate"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Regola cambio operatore</h2>
+    <label class="toggle"><input type="checkbox" id="setGroup"><span><b>Escludi anche i marchi dello stesso gruppo</b><br><span class="muted">Es. cliente Enel Energia: escludi anche Servizio Elettrico Nazionale; cliente A2A: escludi anche NeN; cliente Eni: escludi Plenitude.</span></span></label>
+    <div class="field wide"><label for="setAlias">Gruppi aggiuntivi (uno per riga, marchi separati da virgola)</label>
+      <textarea id="setAlias" rows="3" placeholder="es. dolomiti energia, sinergie italiane"></textarea>
+      <span class="hint">Ogni riga è un gruppo: tutti i marchi della riga contano come lo stesso operatore.</span></div>
+    <div class="field"><label for="setTol">Tolleranza "spesa uguale" (€/anno)</label><input type="number" step="1" id="setTol"></div>
+  </div>
+  <div class="btns"><button class="btn primary" id="btnSaveSettings" type="button">Salva impostazioni</button><span id="settingsMsg" class="muted"></span></div>
+  <p class="note">Ipotesi di calcolo: il confronto avviene sulle voci decise dal venditore (prezzo energia/gas e quota fissa di commercializzazione). Trasporto, oneri di sistema e accise sono regolati e uguali per tutti gli operatori, quindi non cambiano il risparmio. Il risparmio è mostrato IVA inclusa. Verifica sempre che prezzi di bolletta e CTE siano sulla stessa base (es. perdite di rete incluse o escluse).</p>
+</section>
+</main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   Utilità
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur = (n, d = 0) => n == null || isNaN(n) ? "—" : new Intl.NumberFormat("it-IT", {style:"currency",currency:"EUR",minimumFractionDigits:d,maximumFractionDigits:d}).format(n);
+const num = (n, d = 0) => n == null || isNaN(n) ? "—" : new Intl.NumberFormat("it-IT", {minimumFractionDigits:d,maximumFractionDigits:d}).format(n);
+const unit = tipo => tipo === "gas" ? "Smc" : "kWh";
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function itNum(s){ // "1.234,56" -> 1234.56 ; "0,1234" -> 0.1234 ; "1234.5" -> 1234.5
+  if (s == null) return null; s = String(s).trim().replace(/[€\s]/g, "");
+  if (!s) return null;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+  const v = parseFloat(s); return isNaN(v) ? null : v;
+}
+const toNum = v => v === "" || v == null ? null : typeof v === "number" ? v : /^\s*-?\d+(\.\d+)?\s*$/.test(String(v)) ? parseFloat(v) : itNum(v);
+function lsGet(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+function setStatus(el, kind, html){
+  el.hidden = !html; if (!html) return;
+  el.className = "status" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
+  el.innerHTML = (kind === "busy" ? '<span class="spin"></span>' : "") + "<span>" + html + "</span>";
+}
+
+/* ============================================================
+   Operatori: normalizzazione e gruppi
+   ============================================================ */
+const GRUPPI_BASE = [
+  ["enel", ["enel energia","enel","servizio elettrico nazionale"]],
+  ["eni", ["eni plenitude","plenitude","eni gas e luce","eni"]],
+  ["a2a", ["a2a energia","a2a","nen"]],
+  ["edison", ["edison energia","edison"]],
+  ["hera", ["hera comm","hera","acegasapsamga"]],
+  ["iren", ["iren mercato","iren"]],
+  ["acea", ["acea energia","acea"]],
+  ["sorgenia", ["sorgenia"]],
+  ["engie", ["engie"]],
+  ["iberdrola", ["iberdrola"]],
+  ["axpo", ["axpo","pulsee"]],
+  ["eon", ["e.on","eon energia"]],
+  ["illumia", ["illumia"]],
+  ["duferco", ["duferco"]],
+  ["octopus", ["octopus energy","octopus"]],
+  ["enegan", ["enegan"]],
+  ["wekiwi", ["wekiwi"]],
+  ["optima", ["optima italia"]],
+  ["dolomiti", ["dolomiti energia"]],
+  ["alperia", ["alperia"]],
+  ["agsm", ["agsm aim","agsm","aim energy"]],
+  ["estra", ["estra"]],
+  ["estenergy", ["estenergy"]],
+  ["ascotrade", ["ascotrade","ascopiave"]],
+  ["bluenergy", ["bluenergy"]],
+  ["repower", ["repower"]],
+  ["nova aeg", ["nova aeg"]],
+  ["argos", ["argos"]],
+  ["metamer", ["metamer"]],
+  ["green network", ["green network"]],
+  ["e.ziogas", ["egea"]],
+  ["tate", ["tate"]],
+];
+const DISTRIBUTORI = ["e-distribuzione","e distribuzione","areti","unareti","italgas","2i rete gas","inrete","ireti","edyna","deval","set distribuzione","centria","toscana energia","terna","snam"];
+const SUFFISSI = /\b(s\.?\s?p\.?\s?a\.?|s\.?\s?r\.?\s?l\.?|società|societa|per azioni|energia|energy|luce e gas|luce|gas|italia|mercato libero|commerciale|clienti|power|group|gruppo)\b/g;
+function normOp(s){
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(SUFFISSI, " ").replace(/[^a-z0-9.]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function gruppi(){
+  const extra = (settings.alias || "").split(/\n+/).map(r => r.split(",").map(x => x.trim().toLowerCase()).filter(Boolean)).filter(r => r.length);
+  return GRUPPI_BASE.concat(extra.map((r, i) => ["extra" + i, r]));
+}
+function gruppoDi(name){
+  const low = " " + String(name || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9.]+/g, " ") + " ";
+  for (const [g, aliases] of gruppi()) {
+    for (const a of aliases) if (low.includes(" " + a + " ") || low.includes(" " + a.replace(/\s+/g, "") + " ")) return g;
+  }
+  return null;
+}
+function stessoOperatore(a, b){
+  const na = normOp(a), nb = normOp(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  if (settings.escludiGruppo) { const ga = gruppoDi(a), gb = gruppoDi(b); if (ga && ga === gb) return true; }
+  else { // stessa ragione sociale ma scritta diversamente: confronta il marchio principale
+    const ga = gruppoDi(a), gb = gruppoDi(b);
+    if (ga && ga === gb && na.split(" ")[0] === nb.split(" ")[0]) return true;
+  }
+  return false;
+}
+
+/* ============================================================
+   Stato e archivio (db condiviso con fallback locale)
+   ============================================================ */
+const DEFAULT_SETTINGS = { pun: null, psv: null, idxDate: "", escludiGruppo: true, alias: "", tolleranza: 0 };
+let settings = Object.assign({}, DEFAULT_SETTINGS, lsGet("cf_settings", {}));
+let offers = lsGet("cf_offers", []);   // [{id, ...}]
+let db = null, canWrite = true;
+let demoMode = false;
+let currentBill = null;
+let offerFilter = "tutte";
+
+const store = {
+  async init(){
+    try { db = window.claude?.use ? await window.claude.use("db") : null; } catch { db = null; }
+    if (!db) { $("#storeMode").textContent = "Salvate su questo dispositivo"; renderOffers(); return; }
+    $("#storeMode").textContent = "Sincronizzate (PC e telefono)";
+    try { const u = await window.claude.use("user"); const w = u ? await u.can("data.write") : null; if (w === false) canWrite = false; } catch {}
+    const timer = setTimeout(() => { $("#storeMode").textContent = "Archivio lento a rispondere: mostro la copia locale"; }, 10000);
+    db.collection("offerte").onSnapshot(snap => {
+      clearTimeout(timer);
+      offers = snap.docs.map(d => Object.assign({}, d.data(), { id: d.id }));
+      lsSet("cf_offers", offers);
+      renderOffers(); if (currentBill) renderResults();
+    }, () => { clearTimeout(timer); $("#storeMode").textContent = "Archivio non raggiungibile: copia locale"; });
+    db.doc("config/impostazioni").onSnapshot(s => {
+      if (s.exists) { settings = Object.assign({}, DEFAULT_SETTINGS, s.data()); lsSet("cf_settings", settings); fillSettings(); if (currentBill) renderResults(); }
+    }, () => {});
+  },
+  async saveOffer(o){
+    const data = Object.assign({}, o); const id = data.id; delete data.id; data.aggiornata = new Date().toISOString();
+    if (db) {
+      if (id) await db.doc("offerte/" + id).set(data); else await db.collection("offerte").add(data);
+    } else {
+      if (id) offers = offers.map(x => x.id === id ? Object.assign(data, { id }) : x);
+      else offers.push(Object.assign(data, { id: "l" + Date.now() + Math.random().toString(36).slice(2, 6) }));
+      lsSet("cf_offers", offers); renderOffers();
+    }
+  },
+  async deleteOffer(id){
+    if (db) await db.doc("offerte/" + id).delete();
+    else { offers = offers.filter(o => o.id !== id); lsSet("cf_offers", offers); renderOffers(); }
+  },
+  async saveSettings(s){
+    lsSet("cf_settings", s);
+    if (db) await db.doc("config/impostazioni").set(s);
+  }
+};
+function dbErr(e){ return e?.code === "invalid_argument" ? "Non hai i permessi per modificare le offerte condivise." : "Salvataggio non riuscito (" + esc(e?.code || e?.message || e) + "). Riprova."; }
+
+/* ============================================================
+   Lettura file: testo PDF + immagini per Claude
+   ============================================================ */
+async function readPdf(file){
+  const lib = window.pdfjsLib;
+  if (!lib) throw new Error("Lettore PDF non disponibile");
+  const buf = await file.arrayBuffer();
+  const pdf = await lib.getDocument({ data: buf, isEvalSupported: false }).promise;
+  let text = ""; const images = [];
+  const maxPages = Math.min(pdf.numPages, 8);
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    let line = "", lastY = null;
+    for (const it of tc.items) {
+      const y = Math.round(it.transform[5]);
+      if (lastY !== null && Math.abs(y - lastY) > 3) { text += line.trim() + "\n"; line = ""; }
+      line += it.str + (it.hasEOL ? " " : " "); lastY = y;
+    }
+    text += line.trim() + "\n\n--- pagina " + i + " ---\n\n";
+    if (i <= 3) images.push(page);
+  }
+  return { text, pages: images, numPages: pdf.numPages };
+}
+async function pageToBlob(page){
+  const vp0 = page.getViewport({ scale: 1 });
+  const scale = Math.min(2, 1600 / Math.max(vp0.width, vp0.height));
+  const vp = page.getViewport({ scale });
+  const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  return await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+}
+async function imageToJpeg(file){
+  try {
+    const bmp = await createImageBitmap(file);
+    const s = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+  } catch { return file; }
+}
+async function prepareFile(file){
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    const r = await readPdf(file);
+    const sparse = r.text.replace(/\s|---\s*pagina\s*\d+\s*---/g, "").length < 300;
+    let images = [];
+    if (sparse) for (const p of r.pages) images.push(await pageToBlob(p));
+    return { text: r.text, images, scanned: sparse };
+  }
+  return { text: "", images: [await imageToJpeg(file)], scanned: true };
+}
+
+/* ============================================================
+   Claude (sample) con fallback euristico
+   ============================================================ */
+let samplePromise = null;
+function getSample(){
+  if (!samplePromise) samplePromise = (async () => { try { return window.claude?.use ? await window.claude.use("sample") : null; } catch { return null; } })();
+  return samplePromise;
+}
+async function askClaudeJson(prompt, images){
+  const sample = await getSample(); if (!sample) return { data: null, why: "assente" };
+  const opts = { modelTier: "default" };
+  if (images && images.length) {
+    const lim = await sample.limits().catch(() => null);
+    if (!lim?.images) return { data: null, why: "immagini non disponibili" };
+    opts.images = images.slice(0, lim.images.maxCount || 3);
+  }
+  try { return { data: await sample.json(prompt, opts) }; }
+  catch (e) { return { data: null, why: e?.code || "errore" }; }
+}
+
+const BILL_PROMPT = `Sei un esperto di bollette italiane di energia elettrica e gas naturale.
+Estrai i dati dalla bolletta qui sotto (testo estratto da PDF e/o immagini allegate) e rispondi SOLO con un oggetto JSON con queste chiavi:
+{
+ "tipo": "luce" | "gas",                         // POD (IT...E...) e kWh => luce; PDR (14 cifre) e Smc => gas
+ "segmento": "domestico" | "business",          // business se: altri usi, usi diversi dall'abitazione, BTA/MTA, intestatario con partita IVA/ragione sociale, condominio uso non domestico
+ "motivoSegmento": string,                       // breve indizio usato (es. "Tipologia: uso domestico residente")
+ "fornitore": string,                            // la società di VENDITA che emette la bolletta, NON il distributore (e-distribuzione, Areti, Unareti, Italgas, 2i Rete Gas ecc. sono distributori)
+ "nomeOfferta": string | null,
+ "intestatario": string | null,
+ "codicePunto": string | null,                   // POD o PDR
+ "indirizzoFornitura": string | null,
+ "periodoDal": "YYYY-MM-DD" | null, "periodoAl": "YYYY-MM-DD" | null,
+ "mesiPeriodo": number | null,
+ "consumoPeriodo": number | null,                // kWh o Smc fatturati nel periodo
+ "consumoAnnuo": number | null,                  // consumo annuo / "consumo degli ultimi 12 mesi"
+ "consumoF1": number | null, "consumoF2": number | null, "consumoF3": number | null,  // solo luce, kWh del periodo per fascia
+ "potenzaImpegnata": number | null,              // kW, solo luce
+ "prezzoUnitario": number | null,                // €/kWh o €/Smc della sola componente energia/gas del venditore (PE o CMEM / materia prima), IVA esclusa, senza dispacciamento, trasporto, oneri, accise. Se monorario o per fasce, dai la media ponderata
+ "prezzoTipo": "fisso" | "variabile" | null,
+ "quotaFissaMese": number | null,                // quota fissa di commercializzazione vendita €/mese IVA esclusa (PCV per luce, QVD/quota fissa per gas)
+ "spesaMateriaPeriodo": number | null,           // € "spesa per la materia energia" / "spesa per la materia gas naturale" del periodo, IVA esclusa
+ "totaleBolletta": number | null,                // € totale da pagare
+ "iva": number | null                            // aliquota IVA % applicata (10 o 22)
+}
+Numeri con il punto come separatore decimale, nessun simbolo. Se un dato non è presente metti null: non inventare.`;
+
+const CTE_PROMPT = `Sei un esperto di offerte del mercato libero italiano di luce e gas.
+Il documento qui sotto è una CTE (Condizioni Tecnico Economiche) o una scheda sintetica di un'offerta. Può contenere più offerte (es. luce e gas, o versioni domestico/business).
+Rispondi SOLO con JSON: {"offerte":[ ... ]}, dove ogni offerta è:
+{
+ "operatore": string,                 // società di vendita
+ "nomeOfferta": string,
+ "codiceOfferta": string | null,
+ "tipo": "luce" | "gas",
+ "segmento": "domestico" | "business" | "entrambi",   // business se rivolta a partite IVA / altri usi / PMI
+ "prezzoTipo": "fisso" | "variabile",
+ "prezzo": number | null,            // €/kWh o €/Smc monorario, solo componente energia/gas IVA e imposte escluse (per variabile lascia null)
+ "prezzoF1": number | null, "prezzoF2": number | null, "prezzoF3": number | null,   // se prezzi per fascia (F23 => F2 e F3 uguali)
+ "indice": "PUN" | "PSV" | "altro" | null,   // per offerte variabili
+ "spread": number | null,            // €/kWh o €/Smc da sommare all'indice
+ "quotaFissaMese": number | null,    // quota fissa di commercializzazione €/mese (se annua dividi per 12; se per punto di prelievo usa quella)
+ "quotaPotenzaMese": number | null,  // eventuale quota €/kW/mese applicata dal venditore (solo luce)
+ "durataMesi": number | null,        // durata del prezzo bloccato / delle condizioni
+ "validaFino": "YYYY-MM-DD" | null,  // data fino a cui è sottoscrivibile
+ "note": string | null               // vincoli rilevanti (es. sconti condizionati, bolletta web, domiciliazione)
+}
+Numeri con il punto decimale. Converti c€ in € (es. 12,5 c€/kWh => 0.125). Se un dato manca usa null, non inventare.`;
+
+/* --- fallback euristico (senza Claude) --- */
+function rx(text, re){ const m = text.match(re); return m ? m[1] : null; }
+function trovaOperatore(text){
+  const low = text.toLowerCase(); let best = null, bestN = 0;
+  for (const [g, aliases] of gruppi()) for (const a of aliases) {
+    if (a.length < 3) continue;
+    const re = new RegExp("(^|[^a-z])" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^a-z]|$)", "g");
+    const n = (low.match(re) || []).length;
+    if (n > bestN) { best = a; bestN = n; }
+  }
+  return best ? best.replace(/\b\w/g, c => c.toUpperCase()) : null;
+}
+function heuristicBill(text){
+  const t = text.replace(/ /g, " ");
+  const pod = rx(t, /\b(IT\s?\d{3}\s?E\s?\d{7,9}[A-Z]?)\b/i);
+  const pdr = rx(t, /PDR[^0-9]{0,25}(\d{14})/i);
+  const kwh = (t.match(/kwh/gi) || []).length, smc = (t.match(/smc/gi) || []).length;
+  const tipo = pod ? "luce" : pdr ? "gas" : (smc > kwh ? "gas" : "luce");
+  const biz = /altri usi|usi diversi|uso non domestico|\bBTA\b|\bMTA\b|partita\s+iva\s+cliente|p\.\s?iva\s*(intestatario|cliente)/i.test(t);
+  const dom = /uso domestico|domestico residente|domestico non residente|cliente domestico/i.test(t);
+  const segmento = biz && !dom ? "business" : dom ? "domestico" : (/partita iva|p\.?\s?iva/i.test(t) && !/codice fiscale/i.test(t) ? "business" : "domestico");
+  const N = "([\\d.]+(?:,\\d+)?)";
+  const u = tipo === "gas" ? "smc" : "kwh";
+  const annuo = itNum(rx(t, new RegExp("consumo\\s+annuo[^\\d]{0,60}" + N + "\\s*" + u, "i")) || rx(t, new RegExp("ultimi\\s+12\\s+mesi[^\\d]{0,60}" + N + "\\s*" + u, "i")));
+  const totale = itNum(rx(t, new RegExp("totale\\s+(?:da\\s+pagare|bolletta|fattura|documento)[^\\d]{0,30}" + N, "i")));
+  const materia = itNum(rx(t, new RegExp("spesa\\s+per\\s+la\\s+materia\\s+(?:energia|gas(?:\\s+naturale)?)[^\\d]{0,30}" + N, "i")));
+  const potenza = itNum(rx(t, new RegExp("potenza\\s+impegnata[^\\d]{0,25}" + N + "\\s*kw", "i")));
+  const periodo = t.match(/dal\s+(\d{2})[\/.-](\d{2})[\/.-](\d{4})\s+al\s+(\d{2})[\/.-](\d{2})[\/.-](\d{4})/i);
+  let mesi = null, dal = null, al = null;
+  if (periodo) { dal = `${periodo[3]}-${periodo[2]}-${periodo[1]}`; al = `${periodo[6]}-${periodo[5]}-${periodo[4]}`;
+    mesi = Math.max(1, Math.round((new Date(al) - new Date(dal)) / 2.63e9)); }
+  const consPer = itNum(rx(t, new RegExp("(?:consumo|energia)\\s+(?:fatturat[oa]|del\\s+periodo|rilevat[oa])[^\\d]{0,40}" + N + "\\s*" + u, "i")));
+  const iva = /iva\s*(?:al\s*)?22\s*%/i.test(t) ? 22 : /iva\s*(?:al\s*)?10\s*%/i.test(t) ? 10 : null;
+  return { tipo, segmento, motivoSegmento: biz ? "trovato 'altri usi' / partita IVA" : dom ? "trovato 'uso domestico'" : "dedotto", fornitore: trovaOperatore(t.split(/distribu/i)[0] || t) || trovaOperatore(t),
+    codicePunto: pod || pdr, consumoAnnuo: annuo, totaleBolletta: totale, spesaMateriaPeriodo: materia, potenzaImpegnata: potenza,
+    periodoDal: dal, periodoAl: al, mesiPeriodo: mesi, consumoPeriodo: consPer, iva };
+}
+function heuristicCte(text){
+  const t = text.replace(/ /g, " ");
+  const tipo = (t.match(/smc/gi) || []).length > (t.match(/kwh/gi) || []).length ? "gas" : "luce";
+  const u = tipo === "gas" ? "smc" : "kwh";
+  const variabile = /\b(PUN|PSV)\b[^.]{0,40}\+|indicizzat|variabile/i.test(t);
+  let prezzo = itNum(rx(t, new RegExp("(\\d+,\\d{3,6})\\s*(?:€|euro)\\s*/\\s*" + u, "i")));
+  const cent = itNum(rx(t, new RegExp("(\\d+,\\d+)\\s*c(?:€|ent)\\w*\\s*/\\s*" + u, "i")));
+  if (prezzo == null && cent != null) prezzo = cent / 100;
+  let spread = itNum(rx(t, /(?:PUN|PSV)[^0-9]{0,30}\+\s*([\d]+,\d+)/i));
+  if (spread != null && spread > 1) spread = spread / 100;
+  let qf = itNum(rx(t, /(?:quota fissa|commercializzazione|PCV|QVD)[^€\d]{0,80}([\d]+,\d{1,2})\s*(?:€|euro)\s*\/\s*mese/i));
+  const qfAnno = itNum(rx(t, /(?:quota fissa|commercializzazione|PCV|QVD)[^€\d]{0,80}([\d]+,\d{1,2})\s*(?:€|euro)\s*\/\s*anno/i));
+  if (qf == null && qfAnno != null) qf = qfAnno / 12;
+  const biz = /partita iva|business|altri usi|imprese|aziende|PMI/i.test(t), dom = /domestic|famigli|casa/i.test(t);
+  return { offerte: [{ operatore: trovaOperatore(t), nomeOfferta: rx(t, /offerta\s+([A-Z0-9][^\n]{2,40})/i), tipo,
+    segmento: biz && dom ? "entrambi" : biz ? "business" : "domestico", prezzoTipo: variabile ? "variabile" : "fisso",
+    prezzo: variabile ? null : prezzo, indice: variabile ? (tipo === "gas" ? "PSV" : "PUN") : null, spread: variabile ? spread : null,
+    quotaFissaMese: qf, validaFino: null, note: "Estratta in automatico senza AI: controlla tutti i valori." }] };
+}
+
+/* ============================================================
+   BOLLETTA: caricamento, revisione, confronto
+   ============================================================ */
+async function handleBillFile(file){
+  if (!file) return;
+  demoMode = false;
+  const st = $("#billStatus");
+  $("#billResults").hidden = true; $("#billReview").hidden = true; $("#billIntro").hidden = true;
+  try {
+    setStatus(st, "busy", "Leggo <b>" + esc(file.name) + "</b>…");
+    const prep = await prepareFile(file);
+    setStatus(st, "busy", "Analizzo la bolletta" + (prep.scanned ? " (documento scansionato o foto)" : "") + "… può richiedere fino a un minuto.");
+    const prompt = BILL_PROMPT + "\n\n=== TESTO BOLLETTA ===\n" + (prep.text || "(nessun testo: usa le immagini allegate)").slice(0, 120000);
+    const r = await askClaudeJson(prompt, prep.images);
+    let data = r.data, via = "ai";
+    if (!data) {
+      if (!prep.text.trim()) { setStatus(st, "err", "Non riesco a leggere la foto senza l'analisi AI (" + esc(r.why) + "). Inserisci i dati a mano qui sotto oppure carica il PDF originale."); data = {}; via = "manuale"; }
+      else { data = heuristicBill(prep.text); via = "regole"; }
+    }
+    currentBill = normalizeBill(data, file.name, via);
+    setStatus(st, via === "ai" ? "ok" : via === "regole" ? "" : "err",
+      via === "ai" ? "Bolletta letta. Controlla i dati evidenziati e conferma." :
+      via === "regole" ? "Lettura automatica di base (analisi AI non disponibile: " + esc(r.why) + "). Controlla con attenzione tutti i campi." : st.querySelector("span").innerHTML);
+    renderReview(); renderResults();
+  } catch (e) {
+    setStatus(st, "err", "Non sono riuscito a leggere il file: " + esc(e.message || e) + ". Prova con il PDF originale o una foto più nitida.");
+    currentBill = normalizeBill({}, file.name, "manuale"); renderReview();
+  }
+}
+function defaultIva(b){
+  if (b.segmento === "business") return 22;
+  if (b.tipo === "gas") { const a = b.consumoAnnuo || 0; return a <= 480 ? 10 : Math.round(((480 * 10 + (a - 480) * 22) / a) * 10) / 10; }
+  return 10;
+}
+function normalizeBill(d, nomeFile, via){
+  const b = {
+    nomeFile, via,
+    tipo: d.tipo === "gas" ? "gas" : "luce",
+    segmento: d.segmento === "business" ? "business" : "domestico",
+    motivoSegmento: d.motivoSegmento || "",
+    fornitore: d.fornitore || "", nomeOfferta: d.nomeOfferta || "", intestatario: d.intestatario || "",
+    codicePunto: d.codicePunto || "", indirizzoFornitura: d.indirizzoFornitura || "",
+    periodoDal: d.periodoDal || "", periodoAl: d.periodoAl || "",
+    mesiPeriodo: toNum(d.mesiPeriodo), consumoPeriodo: toNum(d.consumoPeriodo), consumoAnnuo: toNum(d.consumoAnnuo),
+    consumoF1: toNum(d.consumoF1), consumoF2: toNum(d.consumoF2), consumoF3: toNum(d.consumoF3),
+    potenzaImpegnata: toNum(d.potenzaImpegnata), prezzoUnitario: toNum(d.prezzoUnitario), prezzoTipo: d.prezzoTipo || "",
+    quotaFissaMese: toNum(d.quotaFissaMese), spesaMateriaPeriodo: toNum(d.spesaMateriaPeriodo), totaleBolletta: toNum(d.totaleBolletta),
+    iva: toNum(d.iva)
+  };
+  if (!b.mesiPeriodo && b.periodoDal && b.periodoAl) b.mesiPeriodo = Math.max(1, Math.round((new Date(b.periodoAl) - new Date(b.periodoDal)) / 2.63e9));
+  if (b.iva == null) b.iva = defaultIva(b);
+  return b;
+}
+const BILL_FIELDS = [
+  ["fornitore", "Fornitore attuale", "text", "Società di vendita (non il distributore)", true],
+  ["nomeOfferta", "Offerta attuale", "text"],
+  ["intestatario", "Intestatario", "text"],
+  ["codicePunto", "POD / PDR", "text"],
+  ["consumoAnnuo", "Consumo annuo", "number", "U", true],
+  ["prezzoUnitario", "Prezzo energia attuale €/U", "number", "Solo componente del venditore, IVA esclusa"],
+  ["quotaFissaMese", "Quota fissa vendita €/mese", "number"],
+  ["potenzaImpegnata", "Potenza impegnata kW", "number", null, false, "luce"],
+];
+const BILL_MORE = [
+  ["periodoDal", "Periodo dal", "date"], ["periodoAl", "Periodo al", "date"],
+  ["mesiPeriodo", "Mesi fatturati", "number"], ["consumoPeriodo", "Consumo del periodo", "number", "U"],
+  ["spesaMateriaPeriodo", "Spesa materia del periodo €", "number", "Usata per stimare il prezzo se manca"],
+  ["totaleBolletta", "Totale bolletta €", "number"],
+  ["consumoF1", "Consumo F1 kWh", "number", null, false, "luce"], ["consumoF2", "Consumo F2 kWh", "number", null, false, "luce"], ["consumoF3", "Consumo F3 kWh", "number", null, false, "luce"],
+  ["iva", "IVA %", "number", "10% domestico, 22% business"],
+  ["indirizzoFornitura", "Indirizzo fornitura", "text"],
+];
+function fieldHtml(prefix, obj, [k, label, type, hint, required, onlyTipo]){
+  if (onlyTipo && obj.tipo !== onlyTipo) return "";
+  const v = obj[k]; const u = unit(obj.tipo);
+  const lab = label.replace(/\bU\b/, u); const h = hint === "U" ? u : hint;
+  const miss = required && (v == null || v === "");
+  return `<div class="field${miss ? " missing" : ""}"><label for="${prefix}-${k}">${esc(lab)}</label>
+    <input id="${prefix}-${k}" data-k="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(v ?? "")}">
+    ${h ? `<span class="hint">${esc(miss ? "Da completare · " + h : h)}</span>` : miss ? '<span class="hint">Da completare</span>' : ""}</div>`;
+}
+function renderReview(){
+  const b = currentBill, el = $("#billReview"); el.hidden = false;
+  el.innerHTML = `<div class="card">
+    ${demoMode ? '<div class="demo-flag">ESEMPIO DIMOSTRATIVO · dati e offerte inventati, non salvati</div>' : ""}
+    <div class="row"><h2>Dati riconosciuti</h2><span class="muted">${esc(b.nomeFile || "")}</span></div>
+    <div class="chips">
+      <span class="chip ${b.tipo}">${b.tipo === "gas" ? "Gas" : "Luce"}</span>
+      <span class="chip">${b.segmento === "business" ? "Business / P.IVA" : "Domestico"}</span>
+      ${b.fornitore ? `<span class="chip">Attuale: ${esc(b.fornitore)}</span>` : '<span class="chip warn">Fornitore non riconosciuto</span>'}
+      ${b.via === "regole" ? '<span class="chip warn">Lettura base, da verificare</span>' : ""}
+    </div>
+    <div class="grid">
+      <div class="field"><label for="bf-tipo">Fornitura</label><select id="bf-tipo" data-k="tipo"><option value="luce"${b.tipo === "luce" ? " selected" : ""}>Luce</option><option value="gas"${b.tipo === "gas" ? " selected" : ""}>Gas</option></select></div>
+      <div class="field"><label for="bf-segmento">Cliente</label><select id="bf-segmento" data-k="segmento"><option value="domestico"${b.segmento === "domestico" ? " selected" : ""}>Privato / domestico</option><option value="business"${b.segmento === "business" ? " selected" : ""}>Azienda / P.IVA</option></select>${b.motivoSegmento ? `<span class="hint">${esc(b.motivoSegmento)}</span>` : ""}</div>
+      ${BILL_FIELDS.map(f => fieldHtml("bf", b, f)).join("")}
+    </div>
+    <details class="more"><summary>Altri dati della bolletta</summary><div class="grid">${BILL_MORE.map(f => fieldHtml("bf", b, f)).join("")}</div></details>
+    <div class="btns"><button class="btn primary" id="btnRecalc" type="button">Aggiorna confronto</button></div>
+  </div>`;
+  el.querySelectorAll("[data-k]").forEach(inp => inp.addEventListener("change", () => { readReview(); if (inp.dataset.k === "tipo" || inp.dataset.k === "segmento") { currentBill.iva = defaultIva(currentBill); renderReview(); } renderResults(); }));
+  $("#btnRecalc").onclick = () => { readReview(); renderReview(); renderResults(); };
+}
+function readReview(){
+  $("#billReview").querySelectorAll("[data-k]").forEach(inp => {
+    const k = inp.dataset.k; currentBill[k] = inp.type === "number" ? toNum(inp.value) : inp.value;
+  });
+}
+
+/* --- motore di confronto --- */
+function prezzoOfferta(o, b){
+  if (o.prezzoTipo === "variabile") {
+    const idx = b.tipo === "gas" ? toNum(settings.psv) : toNum(settings.pun);
+    if (idx == null) return { err: "manca il valore " + (b.tipo === "gas" ? "PSV" : "PUN") + " in Impostazioni" };
+    return { p: idx + (toNum(o.spread) || 0), nota: (o.indice || (b.tipo === "gas" ? "PSV" : "PUN")) + " " + num(idx, 4) + " + spread " + num(toNum(o.spread) || 0, 4) };
+  }
+  const f = [toNum(o.prezzoF1), toNum(o.prezzoF2), toNum(o.prezzoF3)];
+  if (b.tipo === "luce" && f.every(x => x != null)) {
+    const c = [b.consumoF1, b.consumoF2, b.consumoF3];
+    if (c.every(x => x != null) && c[0] + c[1] + c[2] > 0) {
+      const tot = c[0] + c[1] + c[2]; return { p: (f[0] * c[0] + f[1] * c[1] + f[2] * c[2]) / tot, nota: "media ponderata sulle fasce del cliente" };
+    }
+    if (toNum(o.prezzo) == null) return { p: (f[0] * 0.33 + f[1] * 0.31 + f[2] * 0.36), nota: "media fasce con profilo tipico (33/31/36%)" };
+  }
+  if (toNum(o.prezzo) == null) return { err: "prezzo mancante nella CTE" };
+  return { p: toNum(o.prezzo) };
+}
+function confronta(b){
+  const out = { ok: [], escluse: { stesso: [], piuCare: [], segmento: [], scadute: [], incomplete: [] } };
+  let annuo = b.consumoAnnuo;
+  if (!annuo && b.consumoPeriodo && b.mesiPeriodo) { annuo = b.consumoPeriodo * 12 / b.mesiPeriodo; out.annuoStimato = true; }
+  if (!annuo) { out.errore = "Inserisci il consumo annuo (o consumo e mesi del periodo) per fare il confronto."; return out; }
+  const qfAtt = b.quotaFissaMese || 0;
+  let prezzoAtt = b.prezzoUnitario;
+  if (prezzoAtt == null && b.spesaMateriaPeriodo && b.consumoPeriodo) {
+    prezzoAtt = Math.max(0, (b.spesaMateriaPeriodo - qfAtt * (b.mesiPeriodo || 1)) / b.consumoPeriodo); out.prezzoStimato = true;
+  }
+  if (prezzoAtt == null) { out.errore = "Inserisci il prezzo energia attuale (o la spesa per la materia e il consumo del periodo)."; return out; }
+  const ivaK = 1 + (b.iva ?? defaultIva(b)) / 100;
+  out.annuo = annuo; out.prezzoAtt = prezzoAtt;
+  out.vendAtt = prezzoAtt * annuo + qfAtt * 12;
+  out.vendAttIvato = out.vendAtt * ivaK;
+  if (b.totaleBolletta && b.consumoPeriodo) out.totaleAnnuoStimato = b.totaleBolletta * annuo / b.consumoPeriodo;
+  const oggi = todayISO(); const tol = toNum(settings.tolleranza) || 0;
+  const pool = demoMode ? DEMO_OFFERS : offers;
+  for (const o of pool) {
+    if (o.tipo !== b.tipo) continue;
+    if (b.fornitore && stessoOperatore(o.operatore, b.fornitore)) { out.escluse.stesso.push(o); continue; }
+    if (o.segmento !== "entrambi" && o.segmento !== b.segmento) { out.escluse.segmento.push(o); continue; }
+    if (o.validaFino && o.validaFino < oggi) { out.escluse.scadute.push(o); continue; }
+    const pr = prezzoOfferta(o, b);
+    if (pr.err) { out.escluse.incomplete.push(Object.assign({ motivo: pr.err }, o)); continue; }
+    const qp = b.tipo === "luce" && toNum(o.quotaPotenzaMese) && b.potenzaImpegnata ? toNum(o.quotaPotenzaMese) * b.potenzaImpegnata * 12 : 0;
+    const vend = pr.p * annuo + (toNum(o.quotaFissaMese) || 0) * 12 + qp;
+    const risparmio = (out.vendAtt - vend) * ivaK;
+    const row = { o, prezzo: pr.p, notaPrezzo: pr.nota, vend, vendIvato: vend * ivaK, risparmio, perc: out.vendAtt ? (out.vendAtt - vend) / out.vendAtt : 0, qp };
+    if (risparmio >= -tol) out.ok.push(row); else out.escluse.piuCare.push(o);
+  }
+  out.ok.sort((a, b2) => b2.risparmio - a.risparmio);
+  return out;
+}
+function renderResults(){
+  const b = currentBill, el = $("#billResults"); if (!b) return; el.hidden = false;
+  const r = confronta(b), u = unit(b.tipo);
+  if (r.errore) { el.innerHTML = `<div class="card"><h2>Confronto offerte</h2><div class="status err"><span>${esc(r.errore)}</span></div></div>`; return; }
+  const noOffers = !(demoMode ? DEMO_OFFERS : offers).some(o => o.tipo === b.tipo);
+  const ex = r.escluse;
+  const exLines = [];
+  if (ex.stesso.length) exLines.push(`${ex.stesso.length} dello stesso operatore attuale (${esc(b.fornitore)}): non proponibili`);
+  if (ex.piuCare.length) exLines.push(`${ex.piuCare.length} con spesa più alta dell'attuale`);
+  if (ex.segmento.length) exLines.push(`${ex.segmento.length} riservate a clienti ${b.segmento === "business" ? "domestici" : "business"}`);
+  if (ex.scadute.length) exLines.push(`${ex.scadute.length} scadute`);
+  if (ex.incomplete.length) exLines.push(`${ex.incomplete.length} non calcolabili: ${esc([...new Set(ex.incomplete.map(o => o.motivo))].join("; "))}`);
+  el.innerHTML = `<div class="card">
+    <div class="row"><h2>Offerte con cambio operatore</h2><span class="chip ${r.ok.length ? "ok" : "warn"}">${r.ok.length} proponibili</span></div>
+    <div class="headline">
+      <div class="kpi"><span>Consumo annuo${r.annuoStimato ? " (stimato)" : ""}</span><b>${num(r.annuo)} ${u}</b></div>
+      <div class="kpi"><span>Prezzo attuale${r.prezzoStimato ? " (stimato)" : ""}</span><b>${num(r.prezzoAtt, 4)} €/${u}</b></div>
+      <div class="kpi"><span>Costo vendita attuale/anno</span><b>${eur(r.vendAttIvato)}</b></div>
+      ${r.totaleAnnuoStimato ? `<div class="kpi"><span>Bolletta annua stimata</span><b>${eur(r.totaleAnnuoStimato)}</b></div>` : ""}
+    </div>
+    ${r.prezzoStimato ? '<p class="note">Prezzo attuale ricavato dalla spesa per la materia: include anche dispacciamento e altre voci, quindi il risparmio può risultare sovrastimato. Se possibile inserisci il prezzo energia dal dettaglio della bolletta.</p>' : ""}
+    <div class="list">
+    ${noOffers ? `<div class="empty"><b>Nessuna offerta ${b.tipo} caricata</b><span>Vai su Offerte CTE e carica le condizioni degli operatori.</span><button class="btn small" type="button" data-go="offerte">Carica CTE</button></div>` :
+      !r.ok.length ? `<div class="empty"><b>Nessuna offerta di altri operatori con spesa uguale o minore</b><span>Carica altre CTE o verifica i dati della bolletta.</span></div>` :
+      r.ok.map((x, i) => `<div class="offer${i === 0 && x.risparmio > 0 ? " best" : ""}">
+        <div class="who"><b>${esc(x.o.operatore)}</b><span>${esc(x.o.nomeOfferta || "")}</span>
+          <div class="chips"><span class="chip">${x.o.prezzoTipo === "variabile" ? "Variabile" : "Fisso"}</span>${x.o.durataMesi ? `<span class="chip">${esc(x.o.durataMesi)} mesi</span>` : ""}${i === 0 && x.risparmio > 0 ? '<span class="chip ok">Migliore</span>' : ""}</div></div>
+        <div class="save"><span class="muted">Risparmio/anno</span><span class="meter${x.risparmio <= 0.5 ? " zero" : ""}">${x.risparmio <= 0.5 ? "≈ stessa spesa" : eur(x.risparmio)}</span>${x.risparmio > 0.5 ? `<span class="muted">−${num(x.perc * 100, 1)}% sul costo vendita</span>` : ""}</div>
+        <div class="det"><span>Prezzo <b>${num(x.prezzo, 4)} €/${u}</b>${x.notaPrezzo ? " (" + esc(x.notaPrezzo) + ")" : ""}</span><span>Quota fissa <b>${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese</b></span>${x.qp ? `<span>Quota potenza <b>${eur(x.qp, 0)}/anno</b></span>` : ""}<span>Costo vendita <b>${eur(x.vendIvato)}/anno</b></span>${x.o.validaFino ? `<span>Valida fino al <b>${esc(new Date(x.o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${x.o.note ? `<span>${esc(x.o.note)}</span>` : ""}</div>
+      </div>`).join("")}
+    </div>
+    ${exLines.length ? `<div class="excl">Escluse dal confronto:<ul>${exLines.map(l => "<li>" + l + "</li>").join("")}</ul></div>` : ""}
+    ${r.ok.length ? `<details class="more"><summary>Riepilogo da inviare al cliente</summary><textarea class="copy" id="summaryText" readonly>${esc(riepilogo(b, r))}</textarea><div class="btns"><button class="btn small" id="btnCopy" type="button">Copia testo</button><span class="muted" id="copyMsg"></span></div></details>` : ""}
+    <p class="note">Confronto sulle voci del venditore (prezzo e quota fissa), IVA ${num(b.iva ?? defaultIva(b), 1)}% inclusa. Trasporto, oneri di sistema e accise restano invariati con qualsiasi operatore.</p>
+  </div>`;
+  el.querySelectorAll("[data-go]").forEach(x => x.onclick = () => showTab(x.dataset.go));
+  const cb = $("#btnCopy");
+  if (cb) cb.onclick = async () => { const ta = $("#summaryText"); try { await navigator.clipboard.writeText(ta.value); $("#copyMsg").textContent = "Copiato"; } catch { ta.focus(); ta.select(); $("#copyMsg").textContent = "Testo selezionato: copia con Ctrl+C o tieni premuto"; } };
+}
+function riepilogo(b, r){
+  const u = unit(b.tipo);
+  let s = `Analisi fornitura ${b.tipo === "gas" ? "GAS" : "LUCE"} ${b.segmento === "business" ? "business" : "domestica"}${b.intestatario ? " – " + b.intestatario : ""}\n`;
+  s += `Fornitore attuale: ${b.fornitore || "n.d."}${b.nomeOfferta ? " (" + b.nomeOfferta + ")" : ""}\n`;
+  s += `Consumo annuo: ${num(r.annuo)} ${u} · prezzo attuale ${num(r.prezzoAtt, 4)} €/${u}\n\nAlternative con cambio operatore:\n`;
+  r.ok.slice(0, 5).forEach((x, i) => {
+    s += `${i + 1}. ${x.o.operatore} – ${x.o.nomeOfferta || ""}: ${num(x.prezzo, 4)} €/${u}, quota fissa ${eur(toNum(x.o.quotaFissaMese) || 0, 2)}/mese → ${x.risparmio > 0.5 ? "risparmio stimato " + eur(x.risparmio) + "/anno IVA inclusa" : "spesa equivalente"}\n`;
+  });
+  s += `\nStima basata sui consumi in bolletta; trasporto, oneri e imposte restano invariati.`;
+  return s;
+}
+
+/* ============================================================
+   OFFERTE CTE
+   ============================================================ */
+let drafts = []; // offerte in revisione, non ancora salvate
+async function handleCteFiles(files){
+  const st = $("#cteStatus");
+  for (const file of files) {
+    try {
+      setStatus(st, "busy", "Leggo la CTE <b>" + esc(file.name) + "</b>…");
+      const prep = await prepareFile(file);
+      setStatus(st, "busy", "Estraggo le condizioni economiche da <b>" + esc(file.name) + "</b>…");
+      const r = await askClaudeJson(CTE_PROMPT + "\n\n=== TESTO CTE ===\n" + (prep.text || "(usa le immagini allegate)").slice(0, 120000), prep.images);
+      let data = r.data, via = "ai";
+      if (!data) { data = prep.text.trim() ? heuristicCte(prep.text) : { offerte: [{}] }; via = prep.text.trim() ? "regole" : "manuale"; }
+      const list = Array.isArray(data) ? data : (data.offerte || [data]);
+      list.forEach(o => drafts.push(normalizeOffer(o, file.name, via)));
+      setStatus(st, via === "ai" ? "ok" : "", via === "ai" ? `Estratte ${list.length} offerte da ${esc(file.name)}: controlla e salva.` : `Lettura di base per ${esc(file.name)} (analisi AI non disponibile: ${esc(r.why)}). Controlla tutti i valori.`);
+    } catch (e) {
+      setStatus(st, "err", "Non riesco a leggere " + esc(file.name) + ": " + esc(e.message || e));
+    }
+    renderDrafts();
+  }
+}
+function normalizeOffer(o, fonte, via){
+  const tipo = o.tipo === "gas" ? "gas" : "luce";
+  return {
+    id: o.id, fonte: fonte || o.fonte || "", via,
+    operatore: o.operatore || "", nomeOfferta: o.nomeOfferta || "", codiceOfferta: o.codiceOfferta || "",
+    tipo, segmento: ["domestico","business","entrambi"].includes(o.segmento) ? o.segmento : "domestico",
+    prezzoTipo: o.prezzoTipo === "variabile" ? "variabile" : "fisso",
+    prezzo: toNum(o.prezzo), prezzoF1: toNum(o.prezzoF1), prezzoF2: toNum(o.prezzoF2), prezzoF3: toNum(o.prezzoF3),
+    indice: o.indice || (o.prezzoTipo === "variabile" ? (tipo === "gas" ? "PSV" : "PUN") : ""), spread: toNum(o.spread),
+    quotaFissaMese: toNum(o.quotaFissaMese), quotaPotenzaMese: toNum(o.quotaPotenzaMese),
+    durataMesi: toNum(o.durataMesi), validaFino: o.validaFino || "", note: o.note || ""
+  };
+}
+function offerForm(o, idx){
+  const u = unit(o.tipo), p = "of" + idx;
+  const f = (k, label, type = "number", extra = "") => `<div class="field${extra}"><label for="${p}-${k}">${esc(label)}</label><input id="${p}-${k}" data-k="${k}" type="${type}" ${type === "number" ? 'step="any" inputmode="decimal"' : ""} value="${esc(o[k] ?? "")}"></div>`;
+  const sel = (k, label, opts) => `<div class="field"><label for="${p}-${k}">${label}</label><select id="${p}-${k}" data-k="${k}">${opts.map(([v, t]) => `<option value="${v}"${o[k] === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>`;
+  return `<div class="grid">
+    ${f("operatore", "Operatore", "text", o.operatore ? "" : " missing")}${f("nomeOfferta", "Nome offerta", "text")}
+    ${sel("tipo", "Fornitura", [["luce","Luce"],["gas","Gas"]])}
+    ${sel("segmento", "Rivolta a", [["domestico","Domestico"],["business","Business / P.IVA"],["entrambi","Entrambi"]])}
+    ${sel("prezzoTipo", "Prezzo", [["fisso","Fisso"],["variabile","Variabile (indice + spread)"]])}
+    ${o.prezzoTipo === "variabile" ? f("spread", `Spread €/${u}`) + f("indice", "Indice", "text") : f("prezzo", `Prezzo €/${u}`, "number", o.prezzo == null && o.prezzoF1 == null ? " missing" : "")}
+    ${o.prezzoTipo !== "variabile" && o.tipo === "luce" ? f("prezzoF1", "Prezzo F1 €/kWh") + f("prezzoF2", "Prezzo F2 €/kWh") + f("prezzoF3", "Prezzo F3 €/kWh") : ""}
+    ${f("quotaFissaMese", "Quota fissa €/mese")}
+    ${o.tipo === "luce" ? f("quotaPotenzaMese", "Quota potenza vendita €/kW/mese") : ""}
+    ${f("durataMesi", "Durata condizioni (mesi)")}${f("validaFino", "Sottoscrivibile fino al", "date")}
+    <div class="field wide"><label for="${p}-note">Note</label><input id="${p}-note" data-k="note" type="text" value="${esc(o.note)}"></div>
+  </div>`;
+}
+function readOfferForm(root, o){
+  root.querySelectorAll("[data-k]").forEach(inp => { const k = inp.dataset.k; o[k] = inp.type === "number" ? toNum(inp.value) : inp.value; });
+  return o;
+}
+function renderDrafts(){
+  const el = $("#cteDrafts");
+  el.innerHTML = drafts.map((o, i) => `<div class="card" data-draft="${i}">
+    <div class="row"><h3>${o.id ? "Modifica offerta" : "Nuova offerta da controllare"}</h3><div class="chips"><span class="chip ${o.tipo}">${o.tipo}</span>${o.via === "regole" ? '<span class="chip warn">Lettura base</span>' : ""}${o.fonte ? `<span class="chip">${esc(o.fonte)}</span>` : ""}</div></div>
+    ${offerForm(o, "d" + i)}
+    <div class="btns"><button class="btn primary" data-act="save" type="button"${canWrite ? "" : " disabled"}>Salva offerta</button><button class="btn" data-act="discard" type="button">Scarta</button><span class="muted" data-msg></span></div>
+  </div>`).join("");
+  el.querySelectorAll("[data-draft]").forEach(card => {
+    const i = +card.dataset.draft;
+    card.querySelectorAll("select[data-k]").forEach(s => s.addEventListener("change", () => { readOfferForm(card, drafts[i]); renderDrafts(); }));
+    card.querySelector('[data-act="discard"]').onclick = () => { drafts.splice(i, 1); renderDrafts(); };
+    card.querySelector('[data-act="save"]').onclick = async (ev) => {
+      const o = readOfferForm(card, drafts[i]); const msg = card.querySelector("[data-msg]");
+      if (!o.operatore) { msg.textContent = "Indica l'operatore."; return; }
+      if (o.prezzoTipo === "fisso" && o.prezzo == null && (o.prezzoF1 == null || o.prezzoF2 == null || o.prezzoF3 == null)) { msg.textContent = "Indica il prezzo (monorario o tutte e tre le fasce)."; return; }
+      if (o.prezzo != null && o.prezzo > 5) { msg.textContent = "Il prezzo sembra in centesimi: inseriscilo in € (es. 0,1250)."; return; }
+      ev.target.disabled = true; msg.textContent = "Salvataggio…";
+      try { const clean = Object.assign({}, o); delete clean.via; await store.saveOffer(clean); drafts.splice(i, 1); renderDrafts(); setStatus($("#cteStatus"), "ok", "Offerta di " + esc(o.operatore) + " salvata."); }
+      catch (e) { ev.target.disabled = false; msg.innerHTML = dbErr(e); }
+    };
+  });
+}
+function renderOffers(){
+  $("#offerCount").textContent = offers.length;
+  const el = $("#offerList");
+  const list = offers.filter(o => offerFilter === "tutte" || o.tipo === offerFilter || o.segmento === offerFilter || (o.segmento === "entrambi" && (offerFilter === "domestico" || offerFilter === "business")))
+    .sort((a, b) => (a.tipo + a.operatore).localeCompare(b.tipo + b.operatore));
+  if (!offers.length) { el.innerHTML = `<div class="empty"><b>Nessuna offerta salvata</b><span>Carica il PDF di una CTE qui sopra: estraggo operatore, prezzi e quote fisse.</span></div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="empty">Nessuna offerta per questo filtro.</div>`; return; }
+  const oggi = todayISO();
+  el.innerHTML = list.map(o => { const u = unit(o.tipo); const scad = o.validaFino && o.validaFino < oggi;
+    return `<div class="offer">
+      <div class="who"><b>${esc(o.operatore)}</b><span>${esc(o.nomeOfferta)}</span>
+        <div class="chips"><span class="chip ${o.tipo}">${o.tipo}</span><span class="chip">${o.segmento === "entrambi" ? "Dom. + business" : o.segmento}</span><span class="chip">${o.prezzoTipo}</span>${scad ? '<span class="chip bad">Scaduta</span>' : ""}</div></div>
+      <div class="save"><span class="meter">${o.prezzoTipo === "variabile" ? esc(o.indice || "") + " + " + num(toNum(o.spread) || 0, 4) : num(toNum(o.prezzo) ?? avgF(o), 4)} €/${u}</span><span class="muted">+ ${eur(toNum(o.quotaFissaMese) || 0, 2)}/mese</span></div>
+      <div class="det">${o.validaFino ? `<span>Fino al <b>${esc(new Date(o.validaFino).toLocaleDateString("it-IT"))}</b></span>` : ""}${o.fonte ? `<span>${esc(o.fonte)}</span>` : ""}
+        <span class="btns">${canWrite ? `<button class="btn small" data-edit="${esc(o.id)}" type="button">Modifica</button><button class="btn small danger" data-del="${esc(o.id)}" type="button">Elimina</button>` : ""}</span></div>
+    </div>`; }).join("");
+  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { const o = offers.find(x => x.id === b.dataset.edit); drafts.unshift(normalizeOffer(o, o.fonte, "ai")); drafts[0].id = o.id; renderDrafts(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Conferma eliminazione"; setTimeout(() => { b.dataset.confirm = ""; b.textContent = "Elimina"; }, 4000); return; }
+    b.disabled = true; try { await store.deleteOffer(b.dataset.del); } catch (e) { b.disabled = false; b.textContent = "Errore"; }
+  });
+}
+const avgF = o => [o.prezzoF1, o.prezzoF2, o.prezzoF3].every(x => toNum(x) != null) ? (toNum(o.prezzoF1) + toNum(o.prezzoF2) + toNum(o.prezzoF3)) / 3 : null;
+
+/* ============================================================
+   Impostazioni
+   ============================================================ */
+function fillSettings(){
+  $("#setPun").value = settings.pun ?? ""; $("#setPsv").value = settings.psv ?? ""; $("#setIdxDate").value = settings.idxDate || "";
+  $("#setGroup").checked = !!settings.escludiGruppo; $("#setAlias").value = settings.alias || ""; $("#setTol").value = settings.tolleranza ?? 0;
+}
+$("#btnSaveSettings").onclick = async () => {
+  const s = { pun: toNum($("#setPun").value), psv: toNum($("#setPsv").value), idxDate: $("#setIdxDate").value,
+    escludiGruppo: $("#setGroup").checked, alias: $("#setAlias").value, tolleranza: toNum($("#setTol").value) || 0 };
+  if (s.pun != null && s.pun > 2) { $("#settingsMsg").textContent = "Il PUN va in €/kWh (es. 0,11), non in €/MWh."; return; }
+  settings = s; $("#settingsMsg").textContent = "Salvataggio…";
+  try { await store.saveSettings(s); $("#settingsMsg").textContent = "Impostazioni salvate."; } catch (e) { $("#settingsMsg").innerHTML = dbErr(e); }
+  if (currentBill) renderResults();
+};
+
+/* ============================================================
+   Esempio dimostrativo (solo in memoria)
+   ============================================================ */
+const DEMO_OFFERS = [
+  { id: "d1", operatore: "Operatore Alfa", nomeOfferta: "Casa Fissa 12 (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.1190, quotaFissaMese: 9, durataMesi: 12 },
+  { id: "d2", operatore: "Operatore Beta", nomeOfferta: "Luce Indicizzata (esempio)", tipo: "luce", segmento: "entrambi", prezzoTipo: "variabile", indice: "PUN", spread: 0.012, quotaFissaMese: 7.5 },
+  { id: "d3", operatore: "Enel Energia", nomeOfferta: "Offerta stesso operatore (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.10, quotaFissaMese: 6 },
+  { id: "d4", operatore: "Operatore Gamma", nomeOfferta: "Prezzo Alto (esempio)", tipo: "luce", segmento: "domestico", prezzoTipo: "fisso", prezzo: 0.17, quotaFissaMese: 12 },
+];
+$("#btnDemo").onclick = () => {
+  demoMode = true; $("#billIntro").hidden = true; setStatus($("#billStatus"), "", "");
+  if (settings.pun == null) settings.pun = 0.115;
+  currentBill = normalizeBill({ tipo: "luce", segmento: "domestico", motivoSegmento: "Tipologia: uso domestico residente", fornitore: "Enel Energia S.p.A.", nomeOfferta: "Offerta di esempio",
+    intestatario: "Mario Rossi (esempio)", codicePunto: "IT001E00000000", consumoAnnuo: 2700, prezzoUnitario: 0.142, quotaFissaMese: 12, potenzaImpegnata: 3, mesiPeriodo: 2, consumoPeriodo: 450, totaleBolletta: 128.4, iva: 10 }, "bolletta-esempio.pdf", "ai");
+  renderReview(); renderResults();
+};
+
+/* ============================================================
+   Navigazione e input file
+   ============================================================ */
+function showTab(name){
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", t.dataset.tab === name ? "true" : "false"));
+  ["bolletta","offerte","impostazioni"].forEach(n => $("#panel-" + n).hidden = n !== name);
+  try { localStorage.setItem("cf_tab", name); } catch {}
+}
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => showTab(t.dataset.tab));
+$("#billFile").onchange = e => { handleBillFile(e.target.files[0]); e.target.value = ""; };
+$("#billCam").onchange = e => { handleBillFile(e.target.files[0]); e.target.value = ""; };
+$("#cteFile").onchange = e => { handleCteFiles([...e.target.files]); e.target.value = ""; };
+$("#btnAddManual").onclick = () => { drafts.unshift(normalizeOffer({}, "", "manuale")); renderDrafts(); };
+document.querySelectorAll("#offerFilters [data-f]").forEach(b => b.onclick = () => {
+  offerFilter = b.dataset.f; document.querySelectorAll("#offerFilters [data-f]").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); renderOffers();
+});
+function wireDrop(zone, onFiles){
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", e => { e.preventDefault(); zone.classList.remove("over"); const f = [...e.dataTransfer.files]; if (f.length) onFiles(f); });
+}
+wireDrop($("#dropBill"), f => handleBillFile(f[0]));
+wireDrop($("#dropCte"), f => handleCteFiles(f));
+
+fillSettings(); renderOffers();
+try { const t = localStorage.getItem("cf_tab"); if (t) showTab(t); } catch {}
+store.init();
+</script>
